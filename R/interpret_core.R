@@ -2,6 +2,14 @@
 # Licensed under the MIT license.
 # Author: Paul Koch <code@koch.ninja>
 
+# useful links.. check these periodically for issues
+# https://CRAN.R-project.org/package=interpret
+# https://cran.r-project.org/web/checks/check_results_interpret.html
+# https://cran.r-project.org/web/checks/check_summary_by_package.html#summary_by_package
+# https://cran.r-project.org/web/checks/check_flavors.html
+
+# we can test our package against many different systesm with:
+# https://builder.r-hub.io
 
 # S3 data structures
 
