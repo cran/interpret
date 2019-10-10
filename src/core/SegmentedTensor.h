@@ -118,10 +118,15 @@ public:
    }
 
    EBM_INLINE static void Free(SegmentedTensor * const pSegmentedRegion) {
-      if(UNLIKELY(nullptr != pSegmentedRegion)) {
+      if(LIKELY(nullptr != pSegmentedRegion)) {
          free(pSegmentedRegion->m_aValues);
-         for(size_t iDimension = 0; iDimension < pSegmentedRegion->m_cDimensionsMax; ++iDimension) {
-            free(pSegmentedRegion->m_aDimensions[iDimension].aDivisions);
+         if(LIKELY(0 != pSegmentedRegion->m_cDimensionsMax)) {
+            DimensionInfo * pDimensionInfo = &pSegmentedRegion->m_aDimensions[0];
+            const DimensionInfo * const pDimensionInfoEnd = &pDimensionInfo[pSegmentedRegion->m_cDimensionsMax];
+            do {
+               free(pDimensionInfo->aDivisions);
+               ++pDimensionInfo;
+            } while(pDimensionInfoEnd != pDimensionInfo);
          }
          free(pSegmentedRegion);
       }
