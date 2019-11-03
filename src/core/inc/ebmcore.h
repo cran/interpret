@@ -20,7 +20,7 @@ extern "C" {
 
 #if defined(__clang__) || defined(__GNUC__) || defined(__SUNPRO_CC)
 
-#ifdef EBMCORE_R
+#ifdef EBMCORE_R // R has it's own way of exporting functions.  There is a single entry point that describes to R how to call our functions.   Also, we export R specific functions rather than the generic ones that we can consume from other languages
 #define EBMCORE_IMPORT_EXPORT_INCLUDE extern
 #define EBMCORE_IMPORT_EXPORT_BODY extern
 #else // EBMCORE_R
@@ -32,7 +32,7 @@ extern "C" {
 
 #elif defined(_MSC_VER) // compiler type
 
-#ifdef EBMCORE_R
+#ifdef EBMCORE_R // R has it's own way of exporting functions.  There is a single entry point that describes to R how to call our functions.   Also, we export R specific functions rather than the generic ones that we can consume from other languages
 #define EBMCORE_IMPORT_EXPORT_INCLUDE extern
 #define EBMCORE_IMPORT_EXPORT_BODY extern
 #else // EBMCORE_R
@@ -182,6 +182,24 @@ EBMCORE_IMPORT_EXPORT_INCLUDE void EBMCORE_CALLING_CONVENTION SetTraceLevel(sign
 //       - we'll probably want to have special categorical processing since each slice in a tensoor can be considered completely independently.  I don't see any reason to have intermediate versions where we have 3 missing / categorical values and 4 ordinal values
 //       - if missing is in the 0th bin, we can do any cuts at the beginning of processing a range, and that means any cut in the model would be the first, so we can initialze it by writing the cut model directly without bothering to handle inserting into the tree at the end
 
+EBMCORE_IMPORT_EXPORT_INCLUDE PEbmTraining EBMCORE_CALLING_CONVENTION InitializeTrainingClassification(
+   IntegerDataType randomSeed,
+   IntegerDataType countFeatures,
+   const EbmCoreFeature * features,
+   IntegerDataType countFeatureCombinations,
+   const EbmCoreFeatureCombination * featureCombinations,
+   const IntegerDataType * featureCombinationIndexes,
+   IntegerDataType countTargetClasses,
+   IntegerDataType countTrainingInstances,
+   const IntegerDataType * trainingTargets,
+   const IntegerDataType * trainingBinnedData,
+   const FractionalDataType * trainingPredictorScores,
+   IntegerDataType countValidationInstances,
+   const IntegerDataType * validationTargets,
+   const IntegerDataType * validationBinnedData,
+   const FractionalDataType * validationPredictorScores,
+   IntegerDataType countInnerBags
+);
 EBMCORE_IMPORT_EXPORT_INCLUDE PEbmTraining EBMCORE_CALLING_CONVENTION InitializeTrainingRegression(
    IntegerDataType randomSeed, 
    IntegerDataType countFeatures, 
@@ -195,24 +213,6 @@ EBMCORE_IMPORT_EXPORT_INCLUDE PEbmTraining EBMCORE_CALLING_CONVENTION Initialize
    const FractionalDataType * trainingPredictorScores, 
    IntegerDataType countValidationInstances, 
    const FractionalDataType * validationTargets, 
-   const IntegerDataType * validationBinnedData, 
-   const FractionalDataType * validationPredictorScores, 
-   IntegerDataType countInnerBags
-);
-EBMCORE_IMPORT_EXPORT_INCLUDE PEbmTraining EBMCORE_CALLING_CONVENTION InitializeTrainingClassification(
-   IntegerDataType randomSeed, 
-   IntegerDataType countFeatures, 
-   const EbmCoreFeature * features,
-   IntegerDataType countFeatureCombinations, 
-   const EbmCoreFeatureCombination * featureCombinations,
-   const IntegerDataType * featureCombinationIndexes, 
-   IntegerDataType countTargetClasses, 
-   IntegerDataType countTrainingInstances, 
-   const IntegerDataType * trainingTargets, 
-   const IntegerDataType * trainingBinnedData, 
-   const FractionalDataType * trainingPredictorScores, 
-   IntegerDataType countValidationInstances, 
-   const IntegerDataType * validationTargets, 
    const IntegerDataType * validationBinnedData, 
    const FractionalDataType * validationPredictorScores, 
    IntegerDataType countInnerBags
@@ -256,20 +256,20 @@ EBMCORE_IMPORT_EXPORT_INCLUDE void EBMCORE_CALLING_CONVENTION FreeTraining(
 );
 
 
+EBMCORE_IMPORT_EXPORT_INCLUDE PEbmInteraction EBMCORE_CALLING_CONVENTION InitializeInteractionClassification(
+   IntegerDataType countFeatures,
+   const EbmCoreFeature * features,
+   IntegerDataType countTargetClasses,
+   IntegerDataType countInstances,
+   const IntegerDataType * targets,
+   const IntegerDataType * binnedData,
+   const FractionalDataType * predictorScores
+);
 EBMCORE_IMPORT_EXPORT_INCLUDE PEbmInteraction EBMCORE_CALLING_CONVENTION InitializeInteractionRegression(
    IntegerDataType countFeatures, 
    const EbmCoreFeature * features,
    IntegerDataType countInstances, 
    const FractionalDataType * targets, 
-   const IntegerDataType * binnedData, 
-   const FractionalDataType * predictorScores
-);
-EBMCORE_IMPORT_EXPORT_INCLUDE PEbmInteraction EBMCORE_CALLING_CONVENTION InitializeInteractionClassification(
-   IntegerDataType countFeatures, 
-   const EbmCoreFeature * features,
-   IntegerDataType countTargetClasses, 
-   IntegerDataType countInstances, 
-   const IntegerDataType * targets, 
    const IntegerDataType * binnedData, 
    const FractionalDataType * predictorScores
 );
