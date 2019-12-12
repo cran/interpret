@@ -2,8 +2,8 @@
 // Licensed under the MIT license.
 // Author: Paul Koch <ebm@koch.ninja>
 
-#ifndef EBM_TRAINING_STATE_H
-#define EBM_TRAINING_STATE_H
+#ifndef EBM_BOOSTING_STATE_H
+#define EBM_BOOSTING_STATE_H
 
 #include <stdlib.h> // malloc, realloc, free
 #include <stddef.h> // size_t, ptrdiff_t
@@ -26,19 +26,19 @@
 #include "SamplingWithReplacement.h"
 
 union CachedThreadResourcesUnion {
-   CachedTrainingThreadResources<false> regression;
-   CachedTrainingThreadResources<true> classification;
+   CachedBoostingThreadResources<false> regression;
+   CachedBoostingThreadResources<true> classification;
 
    EBM_INLINE CachedThreadResourcesUnion(const ptrdiff_t runtimeLearningTypeOrCountTargetClasses) {
       LOG_N(TraceLevelInfo, "Entered CachedThreadResourcesUnion: runtimeLearningTypeOrCountTargetClasses=%td", runtimeLearningTypeOrCountTargetClasses);
       const size_t cVectorLength = GetVectorLengthFlatCore(runtimeLearningTypeOrCountTargetClasses);
-      if(IsRegression(runtimeLearningTypeOrCountTargetClasses)) {
+      if(IsClassification(runtimeLearningTypeOrCountTargetClasses)) {
          // member classes inside a union requre explicit call to constructor
-         new(&regression) CachedTrainingThreadResources<false>(cVectorLength);
+         new(&classification) CachedBoostingThreadResources<true>(cVectorLength);
       } else {
-         EBM_ASSERT(IsClassification(runtimeLearningTypeOrCountTargetClasses));
+         EBM_ASSERT(IsRegression(runtimeLearningTypeOrCountTargetClasses));
          // member classes inside a union requre explicit call to constructor
-         new(&classification) CachedTrainingThreadResources<true>(cVectorLength);
+         new(&regression) CachedBoostingThreadResources<false>(cVectorLength);
       }
       LOG_0(TraceLevelInfo, "Exited CachedThreadResourcesUnion");
    }
@@ -55,7 +55,7 @@ union CachedThreadResourcesUnion {
    }
 };
 
-class EbmTrainingState {
+class EbmBoostingState {
 public:
    const ptrdiff_t m_runtimeLearningTypeOrCountTargetClasses;
 
@@ -83,7 +83,7 @@ public:
 
    CachedThreadResourcesUnion m_cachedThreadResourcesUnion;
 
-   EBM_INLINE EbmTrainingState(const ptrdiff_t runtimeLearningTypeOrCountTargetClasses, const size_t cFeatures, const size_t cFeatureCombinations, const size_t cSamplingSets)
+   EBM_INLINE EbmBoostingState(const ptrdiff_t runtimeLearningTypeOrCountTargetClasses, const size_t cFeatures, const size_t cFeatureCombinations, const size_t cSamplingSets)
       : m_runtimeLearningTypeOrCountTargetClasses(runtimeLearningTypeOrCountTargetClasses)
       , m_cFeatureCombinations(cFeatureCombinations)
       , m_apFeatureCombinations(0 == cFeatureCombinations ? nullptr : FeatureCombinationCore::AllocateFeatureCombinations(cFeatureCombinations))
@@ -102,18 +102,18 @@ public:
       , m_cachedThreadResourcesUnion(runtimeLearningTypeOrCountTargetClasses) {
    }
 
-   EBM_INLINE ~EbmTrainingState() {
-      LOG_0(TraceLevelInfo, "Entered ~EbmTrainingState");
+   EBM_INLINE ~EbmBoostingState() {
+      LOG_0(TraceLevelInfo, "Entered ~EbmBoostingState");
 
-      if(IsRegression(m_runtimeLearningTypeOrCountTargetClasses)) {
+      if(IsClassification(m_runtimeLearningTypeOrCountTargetClasses)) {
          // member classes inside a union requre explicit call to destructor
-         LOG_0(TraceLevelInfo, "~EbmTrainingState identified as regression type");
-         m_cachedThreadResourcesUnion.regression.~CachedTrainingThreadResources();
+         LOG_0(TraceLevelInfo, "~EbmBoostingState identified as classification type");
+         m_cachedThreadResourcesUnion.classification.~CachedBoostingThreadResources();
       } else {
-         EBM_ASSERT(IsClassification(m_runtimeLearningTypeOrCountTargetClasses));
+         EBM_ASSERT(IsRegression(m_runtimeLearningTypeOrCountTargetClasses));
          // member classes inside a union requre explicit call to destructor
-         LOG_0(TraceLevelInfo, "~EbmTrainingState identified as classification type");
-         m_cachedThreadResourcesUnion.classification.~CachedTrainingThreadResources();
+         LOG_0(TraceLevelInfo, "~EbmBoostingState identified as regression type");
+         m_cachedThreadResourcesUnion.regression.~CachedBoostingThreadResources();
       }
 
       SamplingWithReplacement::FreeSamplingSets(m_cSamplingSets, m_apSamplingSets);
@@ -130,7 +130,7 @@ public:
       SegmentedTensor<ActiveDataType, FractionalDataType>::Free(m_pSmallChangeToModelOverwriteSingleSamplingSet);
       SegmentedTensor<ActiveDataType, FractionalDataType>::Free(m_pSmallChangeToModelAccumulatedFromSamplingSets);
 
-      LOG_0(TraceLevelInfo, "Exited ~EbmTrainingState");
+      LOG_0(TraceLevelInfo, "Exited ~EbmBoostingState");
    }
 
    static void DeleteSegmentedTensors(const size_t cFeatureCombinations, SegmentedTensor<ActiveDataType, FractionalDataType> ** const apSegmentedTensors);
@@ -138,4 +138,4 @@ public:
    bool Initialize(const IntegerDataType randomSeed, const EbmCoreFeature * const aFeatures, const EbmCoreFeatureCombination * const aFeatureCombinations, const IntegerDataType * featureCombinationIndexes, const size_t cTrainingInstances, const void * const aTrainingTargets, const IntegerDataType * const aTrainingBinnedData, const FractionalDataType * const aTrainingPredictorScores, const size_t cValidationInstances, const void * const aValidationTargets, const IntegerDataType * const aValidationBinnedData, const FractionalDataType * const aValidationPredictorScores);
 };
 
-#endif // EBM_TRAINING_STATE_H
+#endif // EBM_BOOSTING_STATE_H

@@ -8,6 +8,10 @@
 # https://cran.r-project.org/web/checks/check_summary_by_package.html#summary_by_package
 # https://cran.r-project.org/web/checks/check_flavors.html
 
+# incoming status:
+# https://cransays.itsalocke.com/articles/dashboard.html
+# ftp://cran.r-project.org/incoming/
+
 # if archived, it will appear in:
 # https://cran-archive.r-project.org/web/checks/2019-10-07_check_results_interpret.html
 # https://cran.r-project.org/src/contrib/Archive/
@@ -17,155 +21,107 @@
 
 # S3 data structures
 
-ebm_feature <- function(count_bins, has_missing = FALSE, feature_type = "ordinal") {
-   count_bins <- as.double(count_bins)
+ebm_feature <- function(n_bins, has_missing = FALSE, feature_type = "ordinal") {
+   n_bins <- as.double(n_bins)
    stopifnot(is.logical(has_missing))
    feature_type <- match.arg(feature_type, c("ordinal", "nominal"))
-   ret <- structure(list(count_bins = count_bins, has_missing = has_missing, feature_type = feature_type), class = "ebm_feature")
+   ret <- structure(list(n_bins = n_bins, has_missing = has_missing, feature_type = feature_type), class = "ebm_feature")
    return(ret)
 }
 
-ebm_feature_combination <- function(count_features_in_combination = 1) {
-   count_features_in_combination <- as.double(count_features_in_combination)
-   ret <- structure(list(count_features_in_combination = count_features_in_combination), class = "ebm_feature_combination")
-   return(ret)
-}
-
-# Training functions
-
-initialize_training_regression <- function(random_seed, features, feature_combinations, feature_combination_indexes, training_targets, training_binned_data, training_predictor_scores, validation_targets, validation_binned_data, validation_predictor_scores, count_inner_bags) {
-   random_seed <- as.integer(random_seed)
-   features <- as.list(features)
-   feature_combinations <- as.list(feature_combinations)
-   feature_combination_indexes <- as.double(feature_combination_indexes)
-   training_targets <- as.double(training_targets)
-   training_binned_data <- as.double(training_binned_data)
-   if(!is.null(training_predictor_scores)) {
-      training_predictor_scores <- as.double(training_predictor_scores)
-   }
-   validation_targets <- as.double(validation_targets)
-   validation_binned_data <- as.double(validation_binned_data)
-   if(!is.null(validation_predictor_scores)) {
-      validation_predictor_scores <- as.double(validation_predictor_scores)
-   }
-   count_inner_bags <- as.integer(count_inner_bags)
-
-   ebm_training <- .Call(InitializeTrainingRegression_R, random_seed, features, feature_combinations, feature_combination_indexes, training_targets, training_binned_data, training_predictor_scores, validation_targets, validation_binned_data, validation_predictor_scores, count_inner_bags)
-   if(is.null(ebm_training)) {
-      stop("error in InitializeTrainingRegression_R")
-   }
-   return(ebm_training)
-}
-
-initialize_training_classification <- function(random_seed, features, feature_combinations, feature_combination_indexes, count_target_classes, training_targets, training_binned_data, training_predictor_scores, validation_targets, validation_binned_data, validation_predictor_scores, count_inner_bags) {
-   random_seed <- as.integer(random_seed)
-   features <- as.list(features)
-   feature_combinations <- as.list(feature_combinations)
-   feature_combination_indexes <- as.double(feature_combination_indexes)
-   count_target_classes <- as.double(count_target_classes)
-   training_targets <- as.double(training_targets)
-   training_binned_data <- as.double(training_binned_data)
-   if(!is.null(training_predictor_scores)) {
-      training_predictor_scores <- as.double(training_predictor_scores)
-   }
-   validation_targets <- as.double(validation_targets)
-   validation_binned_data <- as.double(validation_binned_data)
-   if(!is.null(validation_predictor_scores)) {
-      validation_predictor_scores <- as.double(validation_predictor_scores)
-   }
-   count_inner_bags <- as.integer(count_inner_bags)
-
-   ebm_training <- .Call(InitializeTrainingClassification_R, random_seed, features, feature_combinations, feature_combination_indexes, count_target_classes, training_targets, training_binned_data, training_predictor_scores, validation_targets, validation_binned_data, validation_predictor_scores, count_inner_bags)
-   if(is.null(ebm_training)) {
-      stop("error in InitializeTrainingClassification_R")
-   }
-   return(ebm_training)
-}
-
-training_step <- function(ebm_training, index_feature_combination, learning_rate, count_tree_splits_max, count_instances_required_for_parent_split_min, training_weights, validation_weights) {
-   stopifnot(class(ebm_training) == "externalptr")
-   index_feature_combination <- as.double(index_feature_combination)
-   learning_rate <- as.double(learning_rate)
-   count_tree_splits_max <- as.double(count_tree_splits_max)
-   count_instances_required_for_parent_split_min <- as.double(count_instances_required_for_parent_split_min)
-   if(!is.null(training_weights)) {
-      training_weights <- as.double(training_weights)
-   }
-   if(!is.null(validation_weights)) {
-      validation_weights <- as.double(validation_weights)
-   }
-
-   validation_metric <- .Call(TrainingStep_R, ebm_training, index_feature_combination, learning_rate, count_tree_splits_max, count_instances_required_for_parent_split_min, training_weights, validation_weights)
-   if(is.null(validation_metric)) {
-      stop("error in TrainingStep_R")
-   }
-   return(validation_metric)
-}
-
-get_current_model_feature_combination <- function(ebm_training, index_feature_combination) {
-   stopifnot(class(ebm_training) == "externalptr")
-   index_feature_combination <- as.double(index_feature_combination)
-
-   model_feature_combination_tensor <- .Call(GetCurrentModelFeatureCombination_R, ebm_training, index_feature_combination)
-   if(is.null(model_feature_combination_tensor)) {
-      stop("error in GetCurrentModelFeatureCombination_R")
-   }
-   return(model_feature_combination_tensor)
-}
-
-get_best_model_feature_combination <- function(ebm_training, index_feature_combination) {
-   stopifnot(class(ebm_training) == "externalptr")
-   index_feature_combination <- as.double(index_feature_combination)
-
-   model_feature_combination_tensor <- .Call(GetBestModelFeatureCombination_R, ebm_training, index_feature_combination)
-   if(is.null(model_feature_combination_tensor)) {
-      stop("error in GetBestModelFeatureCombination_R")
-   }
-   return(model_feature_combination_tensor)
-}
-
-
-# Interaction detection functions
-
-initialize_interaction_regression <- function(features, targets, binned_data, predictor_scores) {
-   features <- as.list(features)
-   targets <- as.double(targets)
-   binned_data <- as.double(binned_data)
-   if(!is.null(predictor_scores)) {
-      predictor_scores <- as.double(predictor_scores)
-   }
-
-   ebm_interaction <- .Call(InitializeInteractionRegression_R, features, targets, binned_data, predictor_scores)
-   if(is.null(ebm_interaction)) {
-      stop("error in InitializeInteractionRegression_R")
-   }
-   return(ebm_interaction)
-}
-
-initialize_interaction_classification <- function(features, count_target_classes, targets, binned_data, predictor_scores) {
-   features <- as.list(features)
-   count_target_classes <- as.double(count_target_classes)
-   targets <- as.double(targets)
-   binned_data <- as.double(binned_data)
-   if(!is.null(predictor_scores)) {
-      predictor_scores <- as.double(predictor_scores)
-   }
-
-   ebm_interaction <- .Call(InitializeInteractionClassification_R, features, count_target_classes, targets, binned_data, predictor_scores)
-   if(is.null(ebm_interaction)) {
-      stop("error in InitializeInteractionClassification_R")
-   }
-   return(ebm_interaction)
-}
-
-get_interaction_score <- function(ebm_interaction, feature_indexes) {
-   stopifnot(class(ebm_interaction) == "externalptr")
+ebm_feature_combination <- function(feature_indexes) {
    feature_indexes <- as.double(feature_indexes)
-
-   interaction_score <- .Call(GetInteractionScore_R, ebm_interaction, feature_indexes)
-   if(is.null(interaction_score)) {
-      stop("error in GetInteractionScore_R")
-   }
-   return(interaction_score)
+   ret <- structure(list(feature_indexes = feature_indexes), class = "ebm_feature_combination")
+   return(ret)
 }
 
+create_main_feature_combinations <- function(features) {
+   feature_combinations <- lapply(seq_along(features), function(i) { ebm_feature_combination(i) })
+   return(feature_combinations)
+}
+
+ebm_classify <- function(
+   X, 
+   y, 
+   num_outer_bags = 16, 
+   validation_size = 0.15, 
+   max_epochs = 2000, 
+   num_early_stopping_run_length = 50, 
+   learning_rate = 0.01, 
+   max_tree_splits = 2, 
+   min_instances_for_split = 2, 
+   random_state = 42
+) {
+   col_names = colnames(X)
+
+   bin_edges <- vector(mode = "list") #, ncol(X))
+   # TODO: I know this binning is buggy.  Review
+   for(col_name in col_names) bin_edges[[col_name]] <- unique(quantile(X[[col_name]], seq(0,1, 1.0 / 256)))
+   for(col_name in col_names) bin_edges[[col_name]] <- bin_edges[[col_name]][2:(length(bin_edges[[col_name]])-1)]
+   for(col_name in col_names) X[[col_name]] <- as.integer(findInterval(X[[col_name]], bin_edges[[col_name]]))
+   features <- lapply(col_names, function(col_name) { ebm_feature(n_bins = length(bin_edges[[col_name]]) + 1) })
+   feature_combinations <- create_main_feature_combinations(features)
+   
+   set.seed(random_state)
+   val_indexes = sample(1:length(y), ceiling(length(y) * validation_size))
+
+   X_train = X[-val_indexes,]
+   y_train = y[-val_indexes]
+   X_val = X[val_indexes,]
+   y_val = y[val_indexes] 
+
+   X_train_vec <- vector(mode = "numeric") # , ncol(X_train) * nrow(X_train)
+   for(col_name in col_names) X_train_vec[(length(X_train_vec) + 1):(length(X_train_vec) + length(X_train[[col_name]]))] <- X_train[[col_name]]
+
+   X_val_vec <- vector(mode = "numeric") # , ncol(X_val) * nrow(X_val)
+   for(col_name in col_names) X_val_vec[(length(X_val_vec) + 1):(length(X_val_vec) + length(X_val[[col_name]]))] <- X_val[[col_name]]
+
+   result_list = cyclic_gradient_boost(
+      "classification",
+      2,
+      features,
+      feature_combinations,
+      X_train_vec,
+      y_train,
+      NULL,
+      X_val_vec,
+      y_val,
+      NULL,
+      0,
+      random_state,
+      learning_rate,
+      max_tree_splits, 
+      min_instances_for_split, 
+      max_epochs,
+      num_early_stopping_run_length
+   )
+   model <- vector(mode = "list")
+   for(i in seq_along(col_names)) {
+      model[[col_names[[i]]]] <- result_list$model_update[[i]]
+   }
+
+   return(list(bin_edges = bin_edges, model = model))
+}
+
+convert_probability <- function(logit) {
+  odds <- exp(logit)
+  proba <- odds / (1 + odds)
+  return(proba)
+}
+
+ebm_predict_proba <- function (model, X) {
+   col_names = colnames(X)
+   X_binned <- vector(mode = "list") #, ncol(X))
+   for(col_name in col_names) X_binned[[col_name]] <- as.integer(findInterval(X[[col_name]], model$bin_edges[[col_name]]) + 1)
+
+   scores <- vector(mode = "numeric", nrow(X))
+   for(col_name in col_names) {
+      bin_vals <- model$model[[col_name]]
+      bin_indexes <- X_binned[[col_name]]
+      update_scores <- bin_vals[bin_indexes]
+      scores <- scores + update_scores
+   }
+
+   probabilities <- convert_probability(scores)
+   return(probabilities)
+}
