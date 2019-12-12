@@ -1,11 +1,42 @@
-# Makevars and Makevars.interpret need to be identical files, except the COREDIR variable which indicates where to get the core C++ files
-# Makevars needs to be named that exactly because it will get loaded from devtools::install_github and devtools will want it to be that name.  When being installed from devtools, we can refer to .cpp and .h files wherever they are in the repo, so we use the COREDIR to point to them
+# Makevars and Makevars.interpret need to be identical files, except the NATIVEDIR variable which indicates where to get the ebm_native C++ files
+# Makevars needs to be named that exactly because it will get loaded from devtools::install_github and devtools will want it to be that name.  When being installed from devtools, we can refer to .cpp and .h files wherever they are in the repo, so we use the NATIVEDIR to point to them
 # Makevars.interpret is the CRAN version of Makevars.  When the interpret_*.tar.gz is created the Makevars.interpret file gets copied as Makevars into the R building directory
 
-COREDIR=./core
+NATIVEDIR=./ebm_native
 
 CXX_STD = CXX11
-PKG_CPPFLAGS= -I$(COREDIR) -I$(COREDIR)/inc -DEBMCORE_R
+PKG_CPPFLAGS= -I$(NATIVEDIR) -I$(NATIVEDIR)/inc -DEBM_NATIVE_R
+# TODO test adding the g++/clang flags to PKG_CXXFLAGS.  I think -g0 and -O3 won't work though since the R compile flags already include -g and -O2:
 PKG_CXXFLAGS=$(CXX_VISIBILITY)
 
-OBJECTS = interpret_R.o $(COREDIR)/DataSetByFeature.o $(COREDIR)/DataSetByFeatureCombination.o $(COREDIR)/InteractionDetection.o $(COREDIR)/Logging.o $(COREDIR)/SamplingWithReplacement.o $(COREDIR)/Boosting.o
+OBJECTS = interpret_R.o \
+   $(NATIVEDIR)/ApplyModelUpdate.o \
+   $(NATIVEDIR)/ApplyModelUpdateTraining.o \
+   $(NATIVEDIR)/ApplyModelUpdateValidation.o \
+   $(NATIVEDIR)/BinBoosting.o \
+   $(NATIVEDIR)/BinInteraction.o \
+   $(NATIVEDIR)/BinningQuantile.o \
+   $(NATIVEDIR)/BinningUniform.o \
+   $(NATIVEDIR)/BinningWinsorized.o \
+   $(NATIVEDIR)/Booster.o \
+   $(NATIVEDIR)/CalculateInteractionScore.o \
+   $(NATIVEDIR)/CachedThreadResourcesBoosting.o \
+   $(NATIVEDIR)/CachedThreadResourcesInteraction.o \
+   $(NATIVEDIR)/DataSetBoosting.o \
+   $(NATIVEDIR)/DataSetInteraction.o \
+   $(NATIVEDIR)/Discretization.o \
+   $(NATIVEDIR)/FeatureGroup.o \
+   $(NATIVEDIR)/FindBestBoostingSplitsPairs.o \
+   $(NATIVEDIR)/FindBestInteractionGainPairs.o \
+   $(NATIVEDIR)/GenerateModelFeatureGroupUpdate.o \
+   $(NATIVEDIR)/GrowDecisionTree.o \
+   $(NATIVEDIR)/InitializeResiduals.o \
+   $(NATIVEDIR)/InteractionDetection.o \
+   $(NATIVEDIR)/InterpretableNumerics.o \
+   $(NATIVEDIR)/Logging.o \
+   $(NATIVEDIR)/RandomExternal.o \
+   $(NATIVEDIR)/RandomStream.o \
+   $(NATIVEDIR)/SamplingSet.o \
+   $(NATIVEDIR)/SegmentedTensor.o \
+   $(NATIVEDIR)/SumHistogramBuckets.o \
+   $(NATIVEDIR)/TensorTotalsBuild.o 
