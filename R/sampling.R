@@ -2,20 +2,17 @@
 # Licensed under the MIT license.
 # Author: Paul Koch <code@koch.ninja>
 
-sampling_without_replacement <- function(random_seed, count_included, count_samples, is_included_out) {
-   random_seed <- as.integer(random_seed)
-   count_included <- as.double(count_included)
-   count_samples <- as.double(count_samples)
-   stopifnot(is.logical(is_included_out))
-   stopifnot(count_samples == length(is_included_out))
+sample_without_replacement <- function(rng, count_training_samples, count_validation_samples, bag_out) {
+   stopifnot(is.null(rng) || class(rng) == "externalptr")
+   count_training_samples <- as.double(count_training_samples)
+   count_validation_samples <- as.double(count_validation_samples)
+   stopifnot(is.integer(bag_out))
+   stopifnot(count_training_samples + count_validation_samples == length(bag_out))
 
-   # WARNING, is_included_out is modified in place, which breaks R norms, but is legal to do per:
+   # WARNING, bag_out is modified in place, which breaks R norms, but is legal to do per:
    # 5.9.10 Named objects and copying [https://cran.r-project.org/doc/manuals/R-exts.html#Named-objects-and-copying]
-   # we modify is_included_out to avoid extra allocations in the future where we might repeatedly reuse that
+   # we modify bag_out to avoid extra allocations in the future where we might repeatedly reuse that
    # memory to fill in new samples.  This function is not meant to be used outside of this package
-   result <- .Call(SamplingWithoutReplacement_R, random_seed, count_included, count_samples, is_included_out)
-   if(is.null(result)) {
-      stop("error in SamplingWithoutReplacement_R")
-   }
+   result <- .Call(SampleWithoutReplacement_R, rng, count_training_samples, count_validation_samples, bag_out)
    return(NULL)
 }
