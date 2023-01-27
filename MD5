@@ -1,4 +1,4 @@
-2e0acbb55837d99c1a249b13e2d0f5e4 *DESCRIPTION
+d7e33d1a85feddf35c37a5944d661b36 *DESCRIPTION
 cb64687884223a87f8d95c5c666cf51f *LICENSE
 c9a2798a6577f39da04fab5555849016 *NAMESPACE
 bef468d61e9c834503d8a91e395079b1 *R/binning.R
@@ -11,14 +11,14 @@ e79423a8709291c7e47309e3e9fa07c1 *R/sampling.R
 19e82e805df31e16729b27d22c4740af *man/ebm_classify.Rd
 bbfba3dc5ed15d8ab475d3a47ae43192 *man/ebm_predict_proba.Rd
 e95563fd150f20948dc21ba4fabc34cd *man/ebm_show.Rd
-b237a4794843e77aa7c17994b999430d *src/Makevars
-73f52ac6ae9529ccdb1595ace2eb4205 *src/ebm_native/ApplyTermUpdate.cpp
+39fd66c65a0222f4a703b7cc9d073d15 *src/Makevars
+12e6891e92ab406f6f02bd7fe9f6e02a *src/ebm_native/ApplyTermUpdate.cpp
 31fde4c0670d118ef7dd5359c805167b *src/ebm_native/ApplyUpdate.cpp
 bf4da23299d8187a802b0e331be9e100 *src/ebm_native/BinSumsBoosting.cpp
 e20919478f61079c2d7d6d18ad8ebbd8 *src/ebm_native/BinSumsInteraction.cpp
 c60101b1415d3408b2b858899b0717d1 *src/ebm_native/BoosterCore.cpp
 daec878c48a20df9b7884adee5bd8cb3 *src/ebm_native/BoosterCore.hpp
-cc27f5025aed161f0c65cb735d4fd2aa *src/ebm_native/BoosterShell.cpp
+624fcc954627b3b34ffce13d3c40c35b *src/ebm_native/BoosterShell.cpp
 874e31bfe34a4893cbbaf6ae6ce9130f *src/ebm_native/BoosterShell.hpp
 a06d21c9e162de60b17d5a4aa8be94c7 *src/ebm_native/CalcInteractionStrength.cpp
 971b35556b3fd92ca3662d93bcea6874 *src/ebm_native/CutQuantile.cpp
@@ -53,6 +53,7 @@ e7329c97fc68401493c71af29150a3be *src/ebm_native/Tensor.cpp
 779a1415f5df72fd955dec8ad4466eda *src/ebm_native/TensorTotalsSum.hpp
 777a6a660f12a0b0f24cea68c5c88ec0 *src/ebm_native/Term.cpp
 d1e0bb253f4f22e60753555c482f1db4 *src/ebm_native/Term.hpp
+77196a80051d7576803bbcdaea82858b *src/ebm_native/Transpose.hpp
 386171445f61e8b9216d78fce7145508 *src/ebm_native/TreeNode.hpp
 2f4e917c5c795b3c2514e99ab2964c6d *src/ebm_native/approximate_math.hpp
 b0cf1c1e1344269f805271aa0870db14 *src/ebm_native/bridge_c/bridge_c.h
@@ -95,7 +96,7 @@ a39b30a48fc47b2340494776b35aed25 *src/ebm_native/debug_ebm.cpp
 8f5f6f78497cf63b20ab2325c2eadea0 *src/ebm_native/ebm_internal.hpp
 fbb518353ed1b3159406106786c87b7d *src/ebm_native/ebm_stats.hpp
 be1535dba040c68f893b668cfeb96c07 *src/ebm_native/inc/ebm_native.h
-78dacdf8c34c59fbd539907624d8f34c *src/ebm_native/include_ordering.txt
+e0951aeaffc667a05077d4ff85eb32c7 *src/ebm_native/include_ordering.txt
 f7172bb5287a6b85bb5ae11aa98be9d1 *src/ebm_native/interpretable_numerics.cpp
 6c73a906b4e5f5e4a71523337c3efc5f *src/ebm_native/precompiled_header_cpp.hpp
 1ec35a816e1b528ca9e8eb790f90ccb2 *src/ebm_native/random.cpp
