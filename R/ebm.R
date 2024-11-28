@@ -1,4 +1,4 @@
-# Copyright (c) 2018 Microsoft Corporation
+# Copyright (c) 2023 The InterpretML Contributors
 # Licensed under the MIT license.
 # Author: Paul Koch <code@koch.ninja>
 
@@ -29,10 +29,12 @@ ebm_term <- function(feature_indexes) {
 }
 
 get_count_scores_c <- function(n_classes) {
-   if(n_classes <= 2) {
+   if(n_classes < 0 || n_classes == 2) {
       return (1)
-   } else {
+   } else if(2 < n_classes) {
       return (n_classes)
+   } else {
+      return (0)
    }
 }
 
@@ -49,7 +51,7 @@ ebm_classify <- function(
    early_stopping_rounds = 50, 
    early_stopping_tolerance = 1e-4, 
    max_rounds = 5000, 
-   min_samples_leaf = 2, 
+   min_hessian = 1e-3, 
    max_leaves = 3, 
    random_state = 42
 ) {
@@ -65,7 +67,7 @@ ebm_classify <- function(
    # TODO: add missing value support for X
    stopifnot(!any(is.na(X)))
 
-   random_state <- normalize_initial_seed(random_state)
+   random_state <- normalize_seed(random_state)
    rng <- create_rng(random_state)
    
    col_names <- colnames(X)
@@ -102,7 +104,7 @@ ebm_classify <- function(
          terms,
          inner_bags,
          learning_rate,
-         min_samples_leaf, 
+         min_hessian, 
          max_leaves, 
          early_stopping_rounds, 
          early_stopping_tolerance,

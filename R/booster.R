@@ -1,4 +1,4 @@
-# Copyright (c) 2018 Microsoft Corporation
+# Copyright (c) 2023 The InterpretML Contributors
 # Licensed under the MIT license.
 # Author: Paul Koch <code@koch.ninja>
 
@@ -69,14 +69,14 @@ generate_term_update <- function(
    booster_handle, 
    index_term, 
    learning_rate, 
-   count_samples_required_for_child_split_min, 
+   min_hessian, 
    max_leaves
 ) {
    stopifnot(is.null(rng) || class(rng) == "externalptr")
    stopifnot(class(booster_handle) == "externalptr")
    index_term <- as.double(index_term)
    learning_rate <- as.double(learning_rate)
-   count_samples_required_for_child_split_min <- as.double(count_samples_required_for_child_split_min)
+   min_hessian <- as.double(min_hessian)
    max_leaves <- as.double(max_leaves)
 
    avg_gain <- .Call(
@@ -85,7 +85,7 @@ generate_term_update <- function(
       booster_handle, 
       index_term, 
       learning_rate, 
-      count_samples_required_for_child_split_min, 
+      min_hessian, 
       max_leaves
    )
    return(avg_gain)
@@ -133,7 +133,7 @@ get_current_model <- function(booster) {
 }
 
 booster <- function(
-   model_type,
+   task,
    n_classes,
    dataset_handle,
    bag,
@@ -155,7 +155,7 @@ booster <- function(
    )
 
    self <- structure(list(
-      model_type = model_type, 
+      task = task, 
       n_classes = n_classes, 
       terms = terms, 
       booster_handle = booster_handle
@@ -165,7 +165,7 @@ booster <- function(
 }
 
 cyclic_gradient_boost <- function(
-   model_type,
+   task,
    n_classes,
    dataset_handle,
    bag,
@@ -173,7 +173,7 @@ cyclic_gradient_boost <- function(
    terms,
    inner_bags,
    learning_rate,
-   min_samples_leaf, 
+   min_hessian, 
    max_leaves, 
    early_stopping_rounds, 
    early_stopping_tolerance,
@@ -186,7 +186,7 @@ cyclic_gradient_boost <- function(
    c_structs <- convert_terms_to_c(terms)
 
    ebm_booster <- booster(
-      model_type,
+      task,
       n_classes,
       dataset_handle,
       bag,
@@ -206,7 +206,7 @@ cyclic_gradient_boost <- function(
                ebm_booster$booster_handle, 
                term_index - 1, 
                learning_rate, 
-               min_samples_leaf, 
+               min_hessian, 
                max_leaves
             )
 
