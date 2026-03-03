@@ -29,6 +29,7 @@ namespace DEFINED_ZONE_NAME {
 struct BinBase;
 
 extern void InitializeRmseGradientsAndHessiansBoosting(const unsigned char* const pDataSetShared,
+      const double intercept,
       const BagEbm direction,
       const BagEbm* const aBag,
       const double* const aInitScores,
@@ -107,7 +108,9 @@ ErrorEbm BoosterShell::FillAllocations() {
       if(size_t{1} != cScores) {
          size_t cBytesMulticlassMidwayMax = 0;
          if(0 != GetBoosterCore()->GetTrainingSet()->GetCountSamples()) {
+            EBM_ASSERT(1 <= GetBoosterCore()->GetTrainingSet()->GetCountSubsets());
             DataSubsetBoosting* pSubset = GetBoosterCore()->GetTrainingSet()->GetSubsets();
+            EBM_ASSERT(nullptr != pSubset);
             const DataSubsetBoosting* const pSubsetsEnd =
                   pSubset + GetBoosterCore()->GetTrainingSet()->GetCountSubsets();
             do {
@@ -125,7 +128,9 @@ ErrorEbm BoosterShell::FillAllocations() {
          }
 
          if(0 != GetBoosterCore()->GetValidationSet()->GetCountSamples()) {
+            EBM_ASSERT(1 <= GetBoosterCore()->GetValidationSet()->GetCountSubsets());
             DataSubsetBoosting* pSubset = GetBoosterCore()->GetValidationSet()->GetSubsets();
+            EBM_ASSERT(nullptr != pSubset);
             const DataSubsetBoosting* const pSubsetsEnd =
                   pSubset + GetBoosterCore()->GetValidationSet()->GetCountSubsets();
             do {
@@ -177,6 +182,7 @@ failed_allocation:;
 
 EBM_API_BODY ErrorEbm EBM_CALLING_CONVENTION CreateBooster(void* rng,
       const void* dataSet,
+      const double* intercept,
       const BagEbm* bag,
       const double* initScores,
       IntEbm countTerms,
@@ -192,6 +198,7 @@ EBM_API_BODY ErrorEbm EBM_CALLING_CONVENTION CreateBooster(void* rng,
          "Entered CreateBooster: "
          "rng=%p, "
          "dataSet=%p, "
+         "intercept=%p, "
          "bag=%p, "
          "initScores=%p, "
          "countTerms=%" IntEbmPrintf ", "
@@ -205,6 +212,7 @@ EBM_API_BODY ErrorEbm EBM_CALLING_CONVENTION CreateBooster(void* rng,
          "boosterHandleOut=%p",
          rng,
          dataSet,
+         static_cast<const void*>(intercept),
          static_cast<const void*>(bag),
          static_cast<const void*>(initScores),
          countTerms,
@@ -268,6 +276,7 @@ EBM_API_BODY ErrorEbm EBM_CALLING_CONVENTION CreateBooster(void* rng,
          dimensionCounts,
          featureIndexes,
          static_cast<const unsigned char*>(dataSet),
+         intercept,
          bag,
          initScores,
          flags,
@@ -302,9 +311,14 @@ EBM_API_BODY ErrorEbm EBM_CALLING_CONVENTION CreateBooster(void* rng,
             return error;
          }
       } else {
-         InitializeRmseGradientsAndHessiansBoosting(
-               static_cast<const unsigned char*>(dataSet), BagEbm{1}, bag, initScores, pBoosterCore->GetTrainingSet());
          InitializeRmseGradientsAndHessiansBoosting(static_cast<const unsigned char*>(dataSet),
+               nullptr == intercept ? 0.0 : *intercept,
+               BagEbm{1},
+               bag,
+               initScores,
+               pBoosterCore->GetTrainingSet());
+         InitializeRmseGradientsAndHessiansBoosting(static_cast<const unsigned char*>(dataSet),
+               nullptr == intercept ? 0.0 : *intercept,
                BagEbm{-1},
                bag,
                initScores,

@@ -24,6 +24,7 @@ namespace DEFINED_ZONE_NAME {
 
 extern void InitializeRmseGradientsAndHessiansInteraction(const unsigned char* const pDataSetShared,
       const size_t cWeights,
+      const double intercept,
       const BagEbm* const aBag,
       const double* const aInitScores,
       DataSetInteraction* const pDataSet);
@@ -88,6 +89,7 @@ BinBase* InteractionShell::GetInteractionMainBins(const size_t cBytesPerMainBin,
 }
 
 EBM_API_BODY ErrorEbm EBM_CALLING_CONVENTION CreateInteractionDetector(const void* dataSet,
+      const double* intercept,
       const BagEbm* bag,
       const double* initScores, // only samples with non-zeros in the bag are included
       CreateInteractionFlags flags,
@@ -98,6 +100,7 @@ EBM_API_BODY ErrorEbm EBM_CALLING_CONVENTION CreateInteractionDetector(const voi
    LOG_N(Trace_Info,
          "Entered CreateInteractionDetector: "
          "dataSet=%p, "
+         "intercept=%p, "
          "bag=%p, "
          "initScores=%p, "
          "flags=0x%" UCreateInteractionFlagsPrintf ", "
@@ -106,6 +109,7 @@ EBM_API_BODY ErrorEbm EBM_CALLING_CONVENTION CreateInteractionDetector(const voi
          "experimentalParams=%p, "
          "interactionHandleOut=%p",
          static_cast<const void*>(dataSet),
+         static_cast<const void*>(intercept),
          static_cast<const void*>(bag),
          static_cast<const void*>(initScores),
          static_cast<UCreateInteractionFlags>(flags), // signed to unsigned conversion is defined behavior in C++
@@ -187,7 +191,7 @@ EBM_API_BODY ErrorEbm EBM_CALLING_CONVENTION CreateInteractionDetector(const voi
    if(size_t{0} != pInteractionCore->GetCountScores()) {
       if(!pInteractionCore->IsRmse()) {
          error = pInteractionCore->InitializeInteractionGradientsAndHessians(
-               static_cast<const unsigned char*>(dataSet), cWeights, bag, initScores);
+               static_cast<const unsigned char*>(dataSet), cWeights, intercept, bag, initScores);
          if(Error_None != error) {
             // DO NOT FREE pInteractionCore since it's owned by pInteractionShell, which we free here
             InteractionShell::Free(pInteractionShell);
@@ -196,6 +200,7 @@ EBM_API_BODY ErrorEbm EBM_CALLING_CONVENTION CreateInteractionDetector(const voi
       } else {
          InitializeRmseGradientsAndHessiansInteraction(static_cast<const unsigned char*>(dataSet),
                cWeights,
+               nullptr == intercept ? 0.0 : *intercept,
                bag,
                initScores,
                pInteractionCore->GetDataSetInteraction());

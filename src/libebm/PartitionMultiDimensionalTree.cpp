@@ -21,7 +21,7 @@
 #include "ebm_stats.hpp"
 #include "Tensor.hpp"
 #include "TensorTotalsSum.hpp"
-#include "TreeNode.hpp"
+#include "TreeNodeMulti.hpp"
 
 namespace DEFINED_ZONE_NAME {
 #ifndef DEFINED_ZONE_NAME
@@ -260,9 +260,9 @@ done1:;
    return Error_None;
 }
 
-template<bool bHessian, size_t cCompilerScores> class PartitionTwoDimensionalBoostingInternal final {
+template<bool bHessian, size_t cCompilerScores> class PartitionMultiDimensionalTreeInternal final {
  public:
-   PartitionTwoDimensionalBoostingInternal() = delete; // this is a static class.  Do not construct
+   PartitionMultiDimensionalTreeInternal() = delete; // this is a static class.  Do not construct
 
    WARNING_PUSH
    WARNING_DISABLE_UNINITIALIZED_LOCAL_VARIABLE
@@ -385,7 +385,7 @@ template<bool bHessian, size_t cCompilerScores> class PartitionTwoDimensionalBoo
       // TODO: we should calculate the default partial gain before splitting anything. Once we have that
       // number we can calculate the minimum gain we need to reach k_gainMin after the cuts are made
       // which will allow us to avoid some work when the eventual gain will be less than our minimum
-      FloatCalc bestGain = -std::numeric_limits<double>::infinity(); // do not allow bad cuts that lead to negative gain
+      FloatCalc bestGain = -std::numeric_limits<double>::infinity();
 
       EBM_ASSERT(std::numeric_limits<FloatCalc>::min() <= hessianMin);
 
@@ -628,8 +628,8 @@ template<bool bHessian, size_t cCompilerScores> class PartitionTwoDimensionalBoo
                      ++iDimension;
                   } while(cDimensions != iDimension);
 
-                  constexpr double tolerance =
-                        0.0; // TODO: for now purify to the max, but test tolerances and profile them
+                  // TODO: for now purify to the max, but test tolerances and profile them
+                  constexpr double tolerance = 0.0;
 
                   // TODO: in the future try randomizing the purification order.  It probably doesn't make much
                   // difference
@@ -813,8 +813,6 @@ template<bool bHessian, size_t cCompilerScores> class PartitionTwoDimensionalBoo
       }
    done:;
 
-      EBM_ASSERT(std::isnan(bestGain) || k_illegalGainFloat == bestGain || FloatCalc{0} <= bestGain);
-
       // the bin before the aAuxiliaryBins is the last summation bin of aBinsBase,
       // which contains the totals of all bins
       const auto* const pTotal = NegativeIndexBin(aAuxiliaryBins, cBytesPerBin);
@@ -829,15 +827,15 @@ template<bool bHessian, size_t cCompilerScores> class PartitionTwoDimensionalBoo
       const bool bUpdateWithHessian = bHessian && !(TermBoostFlags_DisableNewtonUpdate & flags);
 
       *pTotalGain = 0;
-      EBM_ASSERT(FloatCalc{0} <= k_gainMin);
+      EBM_ASSERT(std::numeric_limits<FloatCalc>::min() <= k_gainMin);
       if(LIKELY(/* NaN */ !UNLIKELY(bestGain < k_gainMin))) {
-         EBM_ASSERT(std::isnan(bestGain) || 0 <= bestGain);
+         EBM_ASSERT(std::isnan(bestGain) || std::numeric_limits<FloatCalc>::min() <= bestGain);
 
          // signal that we've hit an overflow.  Use +inf here since our caller likes that and will flip to -inf
          *pTotalGain = std::numeric_limits<double>::infinity();
          if(LIKELY(/* NaN */ bestGain <= std::numeric_limits<FloatCalc>::max())) {
             EBM_ASSERT(!std::isnan(bestGain));
-            EBM_ASSERT(0 <= bestGain);
+            EBM_ASSERT(std::numeric_limits<FloatCalc>::min() <= bestGain);
             EBM_ASSERT(std::numeric_limits<FloatCalc>::infinity() != bestGain);
 
             if(0 == (TermBoostFlags_PurifyGain & flags)) {
@@ -866,13 +864,10 @@ template<bool bHessian, size_t cCompilerScores> class PartitionTwoDimensionalBoo
             }
 
             EBM_ASSERT(std::numeric_limits<FloatCalc>::infinity() != bestGain);
-            EBM_ASSERT(std::isnan(bestGain) || -std::numeric_limits<FloatCalc>::infinity() == bestGain ||
-                  k_epsilonNegativeGainAllowed <= bestGain);
 
             if(LIKELY(/* NaN */ std::numeric_limits<FloatCalc>::lowest() <= bestGain)) {
                EBM_ASSERT(!std::isnan(bestGain));
                EBM_ASSERT(!std::isinf(bestGain));
-               EBM_ASSERT(k_epsilonNegativeGainAllowed <= bestGain);
 
                *pTotalGain = 0;
                if(LIKELY(k_gainMin <= bestGain)) {
@@ -936,8 +931,6 @@ template<bool bHessian, size_t cCompilerScores> class PartitionTwoDimensionalBoo
          } else {
             EBM_ASSERT(std::isnan(bestGain) || std::numeric_limits<FloatCalc>::infinity() == bestGain);
          }
-      } else {
-         EBM_ASSERT(!std::isnan(bestGain));
       }
 
       // there were no good splits found
@@ -984,9 +977,9 @@ template<bool bHessian, size_t cCompilerScores> class PartitionTwoDimensionalBoo
    WARNING_POP
 };
 
-template<bool bHessian, size_t cPossibleScores> class PartitionTwoDimensionalBoostingTarget final {
+template<bool bHessian, size_t cPossibleScores> class PartitionMultiDimensionalTreeTarget final {
  public:
-   PartitionTwoDimensionalBoostingTarget() = delete; // this is a static class.  Do not construct
+   PartitionMultiDimensionalTreeTarget() = delete; // this is a static class.  Do not construct
 
    INLINE_RELEASE_UNTEMPLATED static ErrorEbm Func(const size_t cRuntimeScores,
          const size_t cDimensions,
@@ -1015,7 +1008,7 @@ template<bool bHessian, size_t cPossibleScores> class PartitionTwoDimensionalBoo
 #endif // NDEBUG
    ) {
       if(cPossibleScores == cRuntimeScores) {
-         return PartitionTwoDimensionalBoostingInternal<bHessian, cPossibleScores>::Func(cRuntimeScores,
+         return PartitionMultiDimensionalTreeInternal<bHessian, cPossibleScores>::Func(cRuntimeScores,
                cDimensions,
                cRealDimensions,
                flags,
@@ -1042,7 +1035,7 @@ template<bool bHessian, size_t cPossibleScores> class PartitionTwoDimensionalBoo
 #endif // NDEBUG
          );
       } else {
-         return PartitionTwoDimensionalBoostingTarget<bHessian, cPossibleScores + 1>::Func(cRuntimeScores,
+         return PartitionMultiDimensionalTreeTarget<bHessian, cPossibleScores + 1>::Func(cRuntimeScores,
                cDimensions,
                cRealDimensions,
                flags,
@@ -1072,9 +1065,9 @@ template<bool bHessian, size_t cPossibleScores> class PartitionTwoDimensionalBoo
    }
 };
 
-template<bool bHessian> class PartitionTwoDimensionalBoostingTarget<bHessian, k_cCompilerScoresMax + 1> final {
+template<bool bHessian> class PartitionMultiDimensionalTreeTarget<bHessian, k_cCompilerScoresMax + 1> final {
  public:
-   PartitionTwoDimensionalBoostingTarget() = delete; // this is a static class.  Do not construct
+   PartitionMultiDimensionalTreeTarget() = delete; // this is a static class.  Do not construct
 
    INLINE_RELEASE_UNTEMPLATED static ErrorEbm Func(const size_t cRuntimeScores,
          const size_t cDimensions,
@@ -1102,7 +1095,7 @@ template<bool bHessian> class PartitionTwoDimensionalBoostingTarget<bHessian, k_
          const BinBase* const pBinsEndDebug
 #endif // NDEBUG
    ) {
-      return PartitionTwoDimensionalBoostingInternal<bHessian, k_dynamicScores>::Func(cRuntimeScores,
+      return PartitionMultiDimensionalTreeInternal<bHessian, k_dynamicScores>::Func(cRuntimeScores,
             cDimensions,
             cRealDimensions,
             flags,
@@ -1131,7 +1124,7 @@ template<bool bHessian> class PartitionTwoDimensionalBoostingTarget<bHessian, k_
    }
 };
 
-extern ErrorEbm PartitionTwoDimensionalBoosting(const bool bHessian,
+extern ErrorEbm PartitionMultiDimensionalTree(const bool bHessian,
       const size_t cRuntimeScores,
       const size_t cDimensions,
       const size_t cRealDimensions,
@@ -1180,7 +1173,7 @@ extern ErrorEbm PartitionTwoDimensionalBoosting(const bool bHessian,
    if(bHessian) {
       if(size_t{1} != cRuntimeScores) {
          // muticlass
-         error = PartitionTwoDimensionalBoostingTarget<true, k_cCompilerScoresStart>::Func(cRuntimeScores,
+         error = PartitionMultiDimensionalTreeTarget<true, k_cCompilerScoresStart>::Func(cRuntimeScores,
                cDimensions,
                cRealDimensions,
                flags,
@@ -1207,7 +1200,7 @@ extern ErrorEbm PartitionTwoDimensionalBoosting(const bool bHessian,
 #endif // NDEBUG
          );
       } else {
-         error = PartitionTwoDimensionalBoostingInternal<true, k_oneScore>::Func(cRuntimeScores,
+         error = PartitionMultiDimensionalTreeInternal<true, k_oneScore>::Func(cRuntimeScores,
                cDimensions,
                cRealDimensions,
                flags,
@@ -1237,7 +1230,7 @@ extern ErrorEbm PartitionTwoDimensionalBoosting(const bool bHessian,
    } else {
       if(size_t{1} != cRuntimeScores) {
          // Odd: gradient multiclass. Allow it, but do not optimize for it
-         error = PartitionTwoDimensionalBoostingInternal<false, k_dynamicScores>::Func(cRuntimeScores,
+         error = PartitionMultiDimensionalTreeInternal<false, k_dynamicScores>::Func(cRuntimeScores,
                cDimensions,
                cRealDimensions,
                flags,
@@ -1264,7 +1257,7 @@ extern ErrorEbm PartitionTwoDimensionalBoosting(const bool bHessian,
 #endif // NDEBUG
          );
       } else {
-         error = PartitionTwoDimensionalBoostingInternal<false, k_oneScore>::Func(cRuntimeScores,
+         error = PartitionMultiDimensionalTreeInternal<false, k_oneScore>::Func(cRuntimeScores,
                cDimensions,
                cRealDimensions,
                flags,

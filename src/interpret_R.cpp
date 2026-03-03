@@ -384,16 +384,16 @@ SEXP MeasureDataSetHeader_R(SEXP countFeatures, SEXP countWeights, SEXP countTar
    return ret;
 }
 
-SEXP MeasureFeature_R(SEXP countBins, SEXP isMissing, SEXP isUnknown, SEXP isNominal, SEXP binIndexes) {
+SEXP MeasureFeature_R(SEXP countBins, SEXP isMissing, SEXP isUnseen, SEXP isNominal, SEXP binIndexes) {
    EBM_ASSERT(nullptr != countBins);
    EBM_ASSERT(nullptr != isMissing);
-   EBM_ASSERT(nullptr != isUnknown);
+   EBM_ASSERT(nullptr != isUnseen);
    EBM_ASSERT(nullptr != isNominal);
    EBM_ASSERT(nullptr != binIndexes);
 
    const IntEbm cBins = ConvertIndex(countBins);
    BoolEbm bMissing = ConvertBool(isMissing);
-   BoolEbm bUnknown = ConvertBool(isUnknown);
+   BoolEbm bUnseen = ConvertBool(isUnseen);
    BoolEbm bNominal = ConvertBool(isNominal);
 
    const IntEbm cSamples = CountDoubles(binIndexes);
@@ -402,7 +402,7 @@ SEXP MeasureFeature_R(SEXP countBins, SEXP isMissing, SEXP isUnknown, SEXP isNom
    const IntEbm countBytes = MeasureFeature(
       cBins,
       bMissing,
-      bUnknown,
+      bUnseen,
       bNominal,
       cSamples,
       aiBins
@@ -510,7 +510,7 @@ SEXP FillDataSetHeader_R(
 SEXP FillFeature_R(
    SEXP countBins,
    SEXP isMissing,
-   SEXP isUnknown,
+   SEXP isUnseen,
    SEXP isNominal,
    SEXP binIndexes,
    SEXP countBytesAllocated,
@@ -518,7 +518,7 @@ SEXP FillFeature_R(
 ) {
    EBM_ASSERT(nullptr != countBins);
    EBM_ASSERT(nullptr != isMissing);
-   EBM_ASSERT(nullptr != isUnknown);
+   EBM_ASSERT(nullptr != isUnseen);
    EBM_ASSERT(nullptr != isNominal);
    EBM_ASSERT(nullptr != binIndexes);
    EBM_ASSERT(nullptr != countBytesAllocated);
@@ -526,7 +526,7 @@ SEXP FillFeature_R(
 
    const IntEbm cBins = ConvertIndex(countBins);
    BoolEbm bMissing = ConvertBool(isMissing);
-   BoolEbm bUnknown = ConvertBool(isUnknown);
+   BoolEbm bUnseen = ConvertBool(isUnseen);
    BoolEbm bNominal = ConvertBool(isNominal);
 
    const IntEbm cSamples = CountDoubles(binIndexes);
@@ -542,7 +542,7 @@ SEXP FillFeature_R(
    const ErrorEbm err = FillFeature(
       cBins,
       bMissing,
-      bUnknown,
+      bUnseen,
       bNominal,
       cSamples,
       aiBins,
@@ -744,6 +744,7 @@ SEXP CreateBooster_R(
    err = CreateBooster(
       pRng,
       pDataSet,
+      nullptr,
       aBag,
       aInitScores,
       cTerms,
@@ -834,6 +835,10 @@ SEXP GenerateTermUpdate_R(
       0,
       0,
       0,
+      0,
+      10.0,
+      9223372036854775807,
+      1.0,
       aLeavesMax,
       nullptr,
       &avgGain
@@ -1039,6 +1044,7 @@ SEXP CreateInteractionDetector_R(SEXP dataSetWrapped, SEXP bag, SEXP initScores)
    InteractionHandle interactionHandle;
    err = CreateInteractionDetector(
       pDataSet,
+      nullptr,
       aBag,
       aInitScores,
       CreateInteractionFlags_Default,

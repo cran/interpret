@@ -21,7 +21,7 @@
 #include "Feature.hpp"
 #include "DataSetInteraction.hpp"
 #include "Tensor.hpp"
-#include "TreeNode.hpp"
+#include "TreeNodeMulti.hpp"
 #include "InteractionCore.hpp"
 #include "InteractionShell.hpp"
 
@@ -57,7 +57,7 @@ extern void TensorTotalsBuild(const bool bHessian,
 #endif // NDEBUG
 );
 
-extern double PartitionTwoDimensionalInteraction(InteractionCore* const pInteractionCore,
+extern double PartitionMultiDimensionalStraight(InteractionCore* const pInteractionCore,
       const size_t cRealDimensions,
       const size_t* const acBins,
       const CalcInteractionFlags flags,
@@ -75,7 +75,7 @@ extern double PartitionTwoDimensionalInteraction(InteractionCore* const pInterac
 #endif // NDEBUG
 );
 
-extern ErrorEbm PartitionTwoDimensionalBoosting(const bool bHessian,
+extern ErrorEbm PartitionMultiDimensionalTree(const bool bHessian,
       const size_t cRuntimeScores,
       const size_t cDimensions,
       const size_t cRealDimensions,
@@ -102,6 +102,15 @@ extern ErrorEbm PartitionTwoDimensionalBoosting(const bool bHessian,
       const BinBase* const pBinsEndDebug
 #endif // NDEBUG
 );
+
+extern double PartitionMultiDimensionalFull(InteractionCore* const pInteractionCore,
+      const size_t cTensorBins,
+      const CalcInteractionFlags flags,
+      const FloatCalc regAlpha,
+      const FloatCalc regLambda,
+      const FloatCalc deltaStepMax,
+      BinBase* aAuxiliaryBinsBase,
+      BinBase* const aBinsBase);
 
 // there is a race condition for decrementing this variable, but if a thread loses the
 // race then it just doesn't get decremented as quickly, which we can live with
@@ -178,8 +187,8 @@ EBM_API_BODY ErrorEbm EBM_CALLING_CONVENTION CalcInteractionStrength(Interaction
       LOG_0(Trace_Warning, "WARNING CalcInteractionStrength maxCardinality can't be less than 0. Turning off.");
    }
 
-   size_t cSamplesLeafMin = size_t{0}; // this is the min value
-   if(IntEbm{0} <= minSamplesLeaf) {
+   size_t cSamplesLeafMin = size_t{1}; // this is the min value
+   if(IntEbm{1} <= minSamplesLeaf) {
       cSamplesLeafMin = static_cast<size_t>(minSamplesLeaf);
       if(IsConvertError<size_t>(minSamplesLeaf)) {
          // we can never exceed a size_t number of samples, so let's just set it to the maximum if we were going to
@@ -187,7 +196,7 @@ EBM_API_BODY ErrorEbm EBM_CALLING_CONVENTION CalcInteractionStrength(Interaction
          cSamplesLeafMin = std::numeric_limits<size_t>::max();
       }
    } else {
-      LOG_0(Trace_Warning, "WARNING CalcInteractionStrength minSamplesLeaf can't be less than 0. Adjusting to 0.");
+      LOG_0(Trace_Warning, "WARNING CalcInteractionStrength minSamplesLeaf can't be less than 1. Adjusting to 1.");
    }
 
    FloatCalc hessianMin = static_cast<FloatCalc>(minHessian);
@@ -476,32 +485,17 @@ EBM_API_BODY ErrorEbm EBM_CALLING_CONVENTION CalcInteractionStrength(Interaction
    BinBase* aAuxiliaryBins = IndexBin(aMainBins, cBytesPerMainBin * cTensorBins);
    aAuxiliaryBins->ZeroMem(cBytesPerMainBin, cAuxillaryBins);
 
-   TensorTotalsBuild(pInteractionCore->IsHessian(),
-         cScores,
-         cDimensions,
-         binSums.m_acBins,
-         aAuxiliaryBins,
-         aMainBins
-#ifndef NDEBUG
-         ,
-         aDebugCopyBins,
-         pDebugMainBinsEnd
-#endif // NDEBUG
-   );
+   LOG_0(Trace_Verbose, "CalcInteractionStrength Starting bin sweep loop");
 
    double bestGain;
-   if(2 == cDimensions) {
-      LOG_0(Trace_Verbose, "CalcInteractionStrength Starting bin sweep loop");
-
-      bestGain = PartitionTwoDimensionalInteraction(pInteractionCore,
+   if(0 != (CalcInteractionFlags_Full & flags)) {
+      bestGain = PartitionMultiDimensionalFull(
+            pInteractionCore, cTensorBins, flags, regAlpha, regLambda, deltaStepMax, aAuxiliaryBins, aMainBins);
+   } else {
+      TensorTotalsBuild(pInteractionCore->IsHessian(),
+            cScores,
             cDimensions,
             binSums.m_acBins,
-            flags,
-            cSamplesLeafMin,
-            hessianMin,
-            regAlphaCalc,
-            regLambdaCalc,
-            deltaStepMax,
             aAuxiliaryBins,
             aMainBins
 #ifndef NDEBUG
@@ -510,168 +504,188 @@ EBM_API_BODY ErrorEbm EBM_CALLING_CONVENTION CalcInteractionStrength(Interaction
             pDebugMainBinsEnd
 #endif // NDEBUG
       );
-   } else {
-      size_t cPossibleSplits;
-      if(IsOverflowBinSize<FloatMain, UIntMain>(true, true, bHessian, cScores)) {
-         // TODO: move this to init
-         return Error_OutOfMemory;
-      }
 
-      if(IsOverflowTreeNodeMultiSize(bHessian, cScores)) {
-         // TODO: move this to init
-         return Error_OutOfMemory;
-      }
-
-      cPossibleSplits = 0;
-
-      size_t cBytes = 1;
-
-      size_t* pcBins = binSums.m_acBins;
-      size_t* pcBinsEnd = binSums.m_acBins + cDimensions;
-      do {
-         const size_t cBins = *pcBins;
-         EBM_ASSERT(size_t{2} <= cBins);
-         const size_t cSplits = cBins - 1;
-         if(IsAddError(cPossibleSplits, cSplits)) {
+      if(2 == cDimensions) {
+         bestGain = PartitionMultiDimensionalStraight(pInteractionCore,
+               cDimensions,
+               binSums.m_acBins,
+               flags,
+               cSamplesLeafMin,
+               hessianMin,
+               regAlphaCalc,
+               regLambdaCalc,
+               deltaStepMax,
+               aAuxiliaryBins,
+               aMainBins
+#ifndef NDEBUG
+               ,
+               aDebugCopyBins,
+               pDebugMainBinsEnd
+#endif // NDEBUG
+         );
+      } else {
+         size_t cPossibleSplits;
+         if(IsOverflowBinSize<FloatMain, UIntMain>(true, true, bHessian, cScores)) {
+            // TODO: move this to init
             return Error_OutOfMemory;
          }
-         cPossibleSplits += cSplits;
-         if(IsMultiplyError(cBins, cBytes)) {
+
+         if(IsOverflowTreeNodeMultiSize(bHessian, cScores)) {
+            // TODO: move this to init
             return Error_OutOfMemory;
          }
-         cBytes *= cBins;
-         ++pcBins;
-      } while(pcBinsEnd != pcBins);
 
-      // For pairs, this calculates the exact max number of splits. For higher dimensions
-      // the max number of splits will be less, but it should be close enough.
-      // Each bin gets a tree node to record the gradient totals, and each split gets a TreeNode
-      // during construction. Each split contains a minimum of 1 bin on each side, so we have
-      // cBins - 1 potential splits.
+         cPossibleSplits = 0;
 
-      if(IsAddError(cBytes, cBytes - 1)) {
-         return Error_OutOfMemory;
-      }
-      cBytes = cBytes + cBytes - 1;
+         size_t cBytes = 1;
 
-      const size_t cBytesTreeNodeMulti = GetTreeNodeMultiSize(bHessian, cScores);
-
-      if(IsMultiplyError(cBytesTreeNodeMulti, cBytes)) {
-         return Error_OutOfMemory;
-      }
-      cBytes *= cBytesTreeNodeMulti;
-
-      const size_t cBytesBest = cBytesTreeNodeMulti * (size_t{1} + (cDimensions << 1));
-      EBM_ASSERT(cBytesBest <= cBytes);
-
-      // double it because we during the multi-dimensional sweep we need the best and we need the current
-      if(IsAddError(cBytesBest, cBytesBest)) {
-         return Error_OutOfMemory;
-      }
-      const size_t cBytesSweep = cBytesBest + cBytesBest;
-
-      cBytes = EbmMax(cBytes, cBytesSweep);
-
-      double* aWeights = nullptr;
-      double* pGradient = nullptr;
-      double* pHessian = nullptr;
-      void* pTreeNodesTemp = nullptr;
-      void* pTemp1 = nullptr;
-
-      if(0 != (CalcInteractionFlags_Purify & flags)) {
-         // allocate the biggest tensor that is possible to split into
-
-         // TODO: cache this memory allocation so that we don't do it each time
-
-         if(IsAddError(size_t{1}, cScores)) {
-            return Error_OutOfMemory;
-         }
-         size_t cItems = 1 + cScores;
-         const bool bUseLogitBoost = bHessian && !(CalcInteractionFlags_DisableNewton & flags);
-         if(bUseLogitBoost) {
-            if(IsAddError(cScores, cItems)) {
+         size_t* pcBins = binSums.m_acBins;
+         size_t* pcBinsEnd = binSums.m_acBins + cDimensions;
+         do {
+            const size_t cBins = *pcBins;
+            EBM_ASSERT(size_t{2} <= cBins);
+            const size_t cSplits = cBins - 1;
+            if(IsAddError(cPossibleSplits, cSplits)) {
                return Error_OutOfMemory;
             }
-            cItems += cScores;
-         }
-         if(IsMultiplyError(sizeof(double), cItems, cTensorBins)) {
+            cPossibleSplits += cSplits;
+            if(IsMultiplyError(cBins, cBytes)) {
+               return Error_OutOfMemory;
+            }
+            cBytes *= cBins;
+            ++pcBins;
+         } while(pcBinsEnd != pcBins);
+
+         // For pairs, this calculates the exact max number of splits. For higher dimensions
+         // the max number of splits will be less, but it should be close enough.
+         // Each bin gets a tree node to record the gradient totals, and each split gets a TreeNode
+         // during construction. Each split contains a minimum of 1 bin on each side, so we have
+         // cBins - 1 potential splits.
+
+         if(IsAddError(cBytes, cBytes - 1)) {
             return Error_OutOfMemory;
          }
-         aWeights = static_cast<double*>(malloc(sizeof(double) * cItems * cTensorBins));
-         if(nullptr == aWeights) {
+         cBytes = cBytes + cBytes - 1;
+
+         const size_t cBytesTreeNodeMulti = GetTreeNodeMultiSize(bHessian, cScores);
+
+         if(IsMultiplyError(cBytesTreeNodeMulti, cBytes)) {
             return Error_OutOfMemory;
          }
-         pGradient = aWeights + cTensorBins;
-         if(bUseLogitBoost) {
-            pHessian = pGradient + cTensorBins * cScores;
+         cBytes *= cBytesTreeNodeMulti;
+
+         const size_t cBytesBest = cBytesTreeNodeMulti * (size_t{1} + (cDimensions << 1));
+         EBM_ASSERT(cBytesBest <= cBytes);
+
+         // double it because we during the multi-dimensional sweep we need the best and we need the current
+         if(IsAddError(cBytesBest, cBytesBest)) {
+            return Error_OutOfMemory;
          }
-      }
+         const size_t cBytesSweep = cBytesBest + cBytesBest;
 
-      pTreeNodesTemp = malloc(cBytes);
-      if(nullptr == pTreeNodesTemp) {
-         free(aWeights);
-         return Error_OutOfMemory;
-      }
+         cBytes = EbmMax(cBytes, cBytesSweep);
 
-      pTemp1 = malloc(cPossibleSplits * sizeof(unsigned char));
-      if(nullptr == pTemp1) {
-         free(pTreeNodesTemp);
-         free(aWeights);
-         return Error_OutOfMemory;
-      }
+         double* aWeights = nullptr;
+         double* pGradient = nullptr;
+         double* pHessian = nullptr;
+         void* pTreeNodesTemp = nullptr;
+         void* pTemp1 = nullptr;
 
-      Tensor* const pInnerTermUpdate = Tensor::Allocate(k_cDimensionsMax, cScores);
-      if(nullptr == pInnerTermUpdate) {
+         if(0 != (CalcInteractionFlags_Purify & flags)) {
+            // allocate the biggest tensor that is possible to split into
+
+            // TODO: cache this memory allocation so that we don't do it each time
+
+            if(IsAddError(size_t{1}, cScores)) {
+               return Error_OutOfMemory;
+            }
+            size_t cItems = 1 + cScores;
+            const bool bUseLogitBoost = bHessian && !(CalcInteractionFlags_DisableNewton & flags);
+            if(bUseLogitBoost) {
+               if(IsAddError(cScores, cItems)) {
+                  return Error_OutOfMemory;
+               }
+               cItems += cScores;
+            }
+            if(IsMultiplyError(sizeof(double), cItems, cTensorBins)) {
+               return Error_OutOfMemory;
+            }
+            aWeights = static_cast<double*>(malloc(sizeof(double) * cItems * cTensorBins));
+            if(nullptr == aWeights) {
+               return Error_OutOfMemory;
+            }
+            pGradient = aWeights + cTensorBins;
+            if(bUseLogitBoost) {
+               pHessian = pGradient + cTensorBins * cScores;
+            }
+         }
+
+         pTreeNodesTemp = malloc(cBytes);
+         if(nullptr == pTreeNodesTemp) {
+            free(aWeights);
+            return Error_OutOfMemory;
+         }
+
+         pTemp1 = malloc(cPossibleSplits * sizeof(unsigned char));
+         if(nullptr == pTemp1) {
+            free(pTreeNodesTemp);
+            free(aWeights);
+            return Error_OutOfMemory;
+         }
+
+         Tensor* const pInnerTermUpdate = Tensor::Allocate(k_cDimensionsMax, cScores);
+         if(nullptr == pInnerTermUpdate) {
+            free(pTemp1);
+            free(pTreeNodesTemp);
+            free(aWeights);
+            return Error_OutOfMemory;
+         }
+
+         error = PartitionMultiDimensionalTree(bHessian,
+               cScores,
+               cDimensions,
+               cDimensions,
+               flags,
+               cSamplesLeafMin,
+               hessianMin,
+               regAlpha,
+               regLambda,
+               deltaStepMax,
+               aMainBins,
+               aAuxiliaryBins,
+               pInnerTermUpdate,
+               pTreeNodesTemp,
+               binSums.m_acBins,
+               aWeights,
+               pGradient,
+               pHessian,
+               &bestGain,
+               cPossibleSplits,
+               pTemp1
+#ifndef NDEBUG
+               ,
+               aDebugCopyBins,
+               pDebugMainBinsEnd
+#endif // NDEBUG
+         );
+
+         Tensor::Free(pInnerTermUpdate);
          free(pTemp1);
          free(pTreeNodesTemp);
          free(aWeights);
-         return Error_OutOfMemory;
-      }
 
-      error = PartitionTwoDimensionalBoosting(bHessian,
-            cScores,
-            cDimensions,
-            cDimensions,
-            flags,
-            cSamplesLeafMin,
-            hessianMin,
-            regAlpha,
-            regLambda,
-            deltaStepMax,
-            aMainBins,
-            aAuxiliaryBins,
-            pInnerTermUpdate,
-            pTreeNodesTemp,
-            binSums.m_acBins,
-            aWeights,
-            pGradient,
-            pHessian,
-            &bestGain,
-            cPossibleSplits,
-            pTemp1
+         if(Error_None != error) {
 #ifndef NDEBUG
-            ,
-            aDebugCopyBins,
-            pDebugMainBinsEnd
-#endif // NDEBUG
-      );
-
-      Tensor::Free(pInnerTermUpdate);
-      free(pTemp1);
-      free(pTreeNodesTemp);
-      free(aWeights);
-
-      if(Error_None != error) {
-#ifndef NDEBUG
-         free(aDebugCopyBins);
+            free(aDebugCopyBins);
 #endif // NDEBUG
 
-         LOG_0(Trace_Verbose, "Exited BoostMultiDimensional with Error code");
+            LOG_0(Trace_Verbose, "Exited BoostMultiDimensional with Error code");
 
-         return error;
+            return error;
+         }
+         EBM_ASSERT(!std::isnan(bestGain));
+         EBM_ASSERT(0 == bestGain || std::numeric_limits<FloatCalc>::min() <= bestGain);
       }
-      EBM_ASSERT(!std::isnan(bestGain));
-      EBM_ASSERT(0 <= bestGain);
    }
 
 #ifndef NDEBUG
@@ -693,11 +707,11 @@ EBM_API_BODY ErrorEbm EBM_CALLING_CONVENTION CalcInteractionStrength(Interaction
    bestGain *= gradientConstant;
 
    if(UNLIKELY(/* NaN */ !LIKELY(bestGain <= std::numeric_limits<double>::max()))) {
-      // We simplify our caller's handling by returning -lowest as our error indicator. -lowest will sort to being
+      // We simplify our caller's handling by returning -lowest as our overflow indicator. -lowest will sort to being
       // the least important item, which is good, but it also signals an overflow without the weirness of NaNs.
       EBM_ASSERT(std::isnan(bestGain) || std::numeric_limits<double>::infinity() == bestGain);
       bestGain = k_illegalGainDouble;
-   } else if(UNLIKELY(bestGain < 0.0)) {
+   } else if(UNLIKELY(bestGain < std::numeric_limits<FloatCalc>::min())) {
       // gain can't mathematically be legally negative, but it can be here in the following situations:
       //   1) for impure interaction gain we subtract the parent partial gain, and there can be floating point
       //      noise that makes this slightly negative
@@ -710,16 +724,16 @@ EBM_API_BODY ErrorEbm EBM_CALLING_CONVENTION CalcInteractionStrength(Interaction
       EBM_ASSERT(!std::isnan(bestGain));
       // make bestGain k_illegalGainDouble if it's -infinity, otherwise make it zero
       bestGain = std::numeric_limits<double>::lowest() <= bestGain ? 0.0 : k_illegalGainDouble;
-   } else {
-      EBM_ASSERT(!std::isnan(bestGain));
-      EBM_ASSERT(!std::isinf(bestGain));
    }
+
+   EBM_ASSERT(!std::isnan(bestGain));
+   EBM_ASSERT(!std::isinf(bestGain));
+   EBM_ASSERT(k_illegalGainDouble == bestGain || 0.0 == bestGain || std::numeric_limits<FloatCalc>::min() <= bestGain);
 
    if(nullptr != avgInteractionStrengthOut) {
       *avgInteractionStrengthOut = bestGain;
    }
 
-   EBM_ASSERT(k_illegalGainDouble == bestGain || 0.0 <= bestGain);
    LOG_COUNTED_N(pInteractionShell->GetPointerCountLogExitMessages(),
          Trace_Info,
          Trace_Verbose,

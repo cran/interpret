@@ -132,6 +132,7 @@ struct ObjectiveWrapper {
 
    BoolEbm m_bMaximizeMetric;
 
+   ObjectiveEbm m_objective;
    LinkEbm m_linkFunction;
    double m_linkParam;
 
@@ -144,7 +145,6 @@ struct ObjectiveWrapper {
    double m_gradientConstant;
    double m_hessianConstant;
    BoolEbm m_bObjectiveHasHessian;
-   BoolEbm m_bRmse;
 
    size_t m_cSIMDPack;
 
@@ -160,7 +160,8 @@ struct ObjectiveWrapper {
 inline static void InitializeObjectiveWrapperUnfailing(ObjectiveWrapper* const pObjectiveWrapper) {
    pObjectiveWrapper->m_pObjective = NULL;
    pObjectiveWrapper->m_bMaximizeMetric = EBM_FALSE;
-   pObjectiveWrapper->m_linkFunction = Link_ERROR;
+   pObjectiveWrapper->m_objective = Objective_Other;
+   pObjectiveWrapper->m_linkFunction = Link_Unknown;
    pObjectiveWrapper->m_linkParam = 0.0;
    pObjectiveWrapper->m_learningRateAdjustmentDifferentialPrivacy = 0.0;
    pObjectiveWrapper->m_learningRateAdjustmentGradientBoosting = 0.0;
@@ -170,7 +171,6 @@ inline static void InitializeObjectiveWrapperUnfailing(ObjectiveWrapper* const p
    pObjectiveWrapper->m_gradientConstant = 0.0;
    pObjectiveWrapper->m_hessianConstant = 0.0;
    pObjectiveWrapper->m_bObjectiveHasHessian = EBM_FALSE;
-   pObjectiveWrapper->m_bRmse = EBM_FALSE;
    pObjectiveWrapper->m_cSIMDPack = 0;
    pObjectiveWrapper->m_cFloatBytes = 0;
    pObjectiveWrapper->m_cUIntBytes = 0;
@@ -212,6 +212,9 @@ INTERNAL_IMPORT_EXPORT_INCLUDE ErrorEbm CreateMetric_Cpu_64(
       const Config* const pConfig, const char* const sMetric, const char* const sMetricEnd
       //   MetricWrapper * const pMetricWrapperOut,
 );
+
+INTERNAL_IMPORT_EXPORT_INCLUDE void Exp_Cpu_64(const size_t c, double* const a);
+INTERNAL_IMPORT_EXPORT_INCLUDE void Log_Cpu_64(const size_t c, double* const a);
 
 INTERNAL_IMPORT_EXPORT_INCLUDE double FinishMetricC(
       const ObjectiveWrapper* const pObjectiveWrapper, const double metricSum);

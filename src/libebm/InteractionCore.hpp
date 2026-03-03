@@ -92,6 +92,7 @@ class InteractionCore final {
 
    ErrorEbm InitializeInteractionGradientsAndHessians(const unsigned char* const pDataSetShared,
          const size_t cWeights,
+         const double* const aIntercept,
          const BagEbm* const aBag,
          const double* const aInitScores);
 
@@ -103,7 +104,7 @@ class InteractionCore final {
 
    inline bool IsRmse() {
       EBM_ASSERT(nullptr != m_objectiveCpu.m_pObjective);
-      return EBM_FALSE != m_objectiveCpu.m_bRmse;
+      return Objective_Rmse == m_objectiveCpu.m_objective;
    }
 
    inline bool IsHessian() {

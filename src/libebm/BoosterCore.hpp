@@ -23,10 +23,8 @@ namespace DEFINED_ZONE_NAME {
 #error DEFINED_ZONE_NAME must be defined
 #endif // DEFINED_ZONE_NAME
 
-class RandomDeterministic;
 class FeatureBoosting;
 class Term;
-struct InnerBag;
 class Tensor;
 
 class BoosterCore final {
@@ -140,6 +138,7 @@ class BoosterCore final {
          const IntEbm* const acTermDimensions,
          const IntEbm* const aiTermFeatures,
          const unsigned char* const pDataSetShared,
+         const double* const aIntercept,
          const BagEbm* const aBag,
          const double* const aInitScores,
          const CreateBoosterFlags flags,
@@ -162,7 +161,7 @@ class BoosterCore final {
 
    inline bool IsRmse() {
       EBM_ASSERT(nullptr != m_objectiveCpu.m_pObjective);
-      return EBM_FALSE != m_objectiveCpu.m_bRmse;
+      return Objective_Rmse == m_objectiveCpu.m_objective;
    }
 
    inline bool IsHessian() {

@@ -26,9 +26,8 @@
 #include "ebm_stats.hpp"
 #include "Feature.hpp"
 #include "Term.hpp"
-#include "InnerBag.hpp"
 #include "Tensor.hpp"
-#include "TreeNode.hpp"
+#include "TreeNodeMulti.hpp"
 #include "BoosterCore.hpp"
 #include "BoosterShell.hpp"
 
@@ -78,6 +77,9 @@ extern void TensorTotalsBuild(const bool bHessian,
 
 extern ErrorEbm PartitionOneDimensionalBoosting(RandomDeterministic* const pRng,
       BoosterShell* const pBoosterShell,
+      const bool bMissing,
+      const bool bUnseen,
+      const bool bNominal,
       const TermBoostFlags flags,
       const size_t cBins,
       const size_t iDimension,
@@ -86,13 +88,17 @@ extern ErrorEbm PartitionOneDimensionalBoosting(RandomDeterministic* const pRng,
       const FloatCalc regAlpha,
       const FloatCalc regLambda,
       const FloatCalc deltaStepMax,
+      const size_t cCategorySamplesMin,
+      const FloatCalc categoricalSmoothing,
+      const size_t categoricalThresholdMax,
+      const FloatCalc categoricalInclusionPercent,
       const size_t cSplitsMax,
-      const MonotoneDirection direction,
+      const MonotoneDirection monotoneDirection,
       const size_t cSamplesTotal,
       const FloatMain weightTotal,
       double* const pTotalGain);
 
-extern ErrorEbm PartitionTwoDimensionalBoosting(const bool bHessian,
+extern ErrorEbm PartitionMultiDimensionalTree(const bool bHessian,
       const size_t cRuntimeScores,
       const size_t cDimensions,
       const size_t cRealDimensions,
@@ -120,6 +126,27 @@ extern ErrorEbm PartitionTwoDimensionalBoosting(const bool bHessian,
 #endif // NDEBUG
 );
 
+extern ErrorEbm PartitionMultiDimensionalCorner(const bool bHessian,
+      const size_t cRuntimeScores,
+      const size_t cRealDimensions,
+      const TermBoostFlags flags,
+      const size_t cSamplesLeafMin,
+      const FloatCalc hessianMin,
+      const FloatCalc regAlpha,
+      const FloatCalc regLambda,
+      const FloatCalc deltaStepMax,
+      const BinBase* const aBinsBase,
+      BinBase* const aAuxiliaryBinsBase,
+      Tensor* const pInnerTermUpdate,
+      const size_t* const acBins,
+      double* const pTotalGain
+#ifndef NDEBUG
+      ,
+      const BinBase* const aDebugCopyBinsBase,
+      const BinBase* const pBinsEndDebug
+#endif // NDEBUG
+);
+
 extern ErrorEbm PartitionRandomBoosting(RandomDeterministic* const pRng,
       BoosterShell* const pBoosterShell,
       const Term* const pTerm,
@@ -128,7 +155,7 @@ extern ErrorEbm PartitionRandomBoosting(RandomDeterministic* const pRng,
       const FloatCalc regLambda,
       const FloatCalc deltaStepMax,
       const IntEbm* const aLeavesMax,
-      const MonotoneDirection significantDirection,
+      const MonotoneDirection monotoneDirection,
       double* const pTotalGain);
 
 static void BoostZeroDimensional(BoosterShell* const pBoosterShell,
@@ -196,8 +223,12 @@ static void BoostZeroDimensional(BoosterShell* const pBoosterShell,
 
 static ErrorEbm BoostSingleDimensional(RandomDeterministic* const pRng,
       BoosterShell* const pBoosterShell,
+      const bool bMissing,
+      const bool bUnseen,
+      const bool bNominal,
       const TermBoostFlags flags,
       const size_t cBins,
+      const size_t samplesTotal,
       const FloatMain weightTotal,
       const size_t iDimension,
       const size_t cSamplesLeafMin,
@@ -205,8 +236,12 @@ static ErrorEbm BoostSingleDimensional(RandomDeterministic* const pRng,
       const FloatCalc regAlpha,
       const FloatCalc regLambda,
       const FloatCalc deltaStepMax,
+      const size_t cCategorySamplesMin,
+      const FloatCalc categoricalSmoothing,
+      const size_t categoricalThresholdMax,
+      const FloatCalc categoricalInclusionPercent,
       const IntEbm countLeavesMax,
-      const MonotoneDirection direction,
+      const MonotoneDirection monotoneDirection,
       double* const pTotalGain) {
    ErrorEbm error;
 
@@ -220,12 +255,11 @@ static ErrorEbm BoostSingleDimensional(RandomDeterministic* const pRng,
       cSplitsMax = std::numeric_limits<size_t>::max();
    }
 
-   BoosterCore* const pBoosterCore = pBoosterShell->GetBoosterCore();
-
-   EBM_ASSERT(1 <= pBoosterCore->GetTrainingSet()->GetCountSamples());
-
    error = PartitionOneDimensionalBoosting(pRng,
          pBoosterShell,
+         bMissing,
+         bUnseen,
+         bNominal,
          flags,
          cBins,
          iDimension,
@@ -234,9 +268,13 @@ static ErrorEbm BoostSingleDimensional(RandomDeterministic* const pRng,
          regAlpha,
          regLambda,
          deltaStepMax,
+         cCategorySamplesMin,
+         categoricalSmoothing,
+         categoricalThresholdMax,
+         categoricalInclusionPercent,
          cSplitsMax,
-         direction,
-         pBoosterCore->GetTrainingSet()->GetCountSamples(),
+         monotoneDirection,
+         samplesTotal,
          weightTotal,
          pTotalGain);
 
@@ -332,46 +370,57 @@ static ErrorEbm BoostMultiDimensional(BoosterShell* const pBoosterShell,
 
    const bool bHessian = pBoosterCore->IsHessian();
 
-   double* aWeights = nullptr;
-   double* pGradient = nullptr;
-   double* pHessian = nullptr;
-   if(0 != ((TermBoostFlags_PurifyUpdate | TermBoostFlags_PurifyGain) & flags)) {
-      // allocate the biggest tensor that is possible to split into
-
-      // TODO: cache this memory allocation so that we don't do it each time
-
-      if(IsAddError(size_t{1}, cScores)) {
-         return Error_OutOfMemory;
-      }
-      size_t cItems = 1 + cScores;
-      const bool bUseLogitBoost = bHessian && !(TermBoostFlags_DisableNewtonGain & flags);
-      if(bUseLogitBoost) {
-         if(IsAddError(cScores, cItems)) {
-            return Error_OutOfMemory;
-         }
-         cItems += cScores;
-      }
-      if(IsMultiplyError(sizeof(double), cItems, cTensorBins)) {
-         return Error_OutOfMemory;
-      }
-      aWeights = static_cast<double*>(malloc(sizeof(double) * cItems * cTensorBins));
-      if(nullptr == aWeights) {
-         return Error_OutOfMemory;
-      }
-      pGradient = aWeights + cTensorBins;
-      if(bUseLogitBoost) {
-         pHessian = pGradient + cTensorBins * cScores;
-      }
-   }
-
    const size_t cRuntimeScores = pBoosterCore->GetCountScores();
    const size_t cRealDimensions = pTerm->GetCountRealDimensions();
-   size_t cPossibleSplits;
    size_t acBins2[k_cDimensionsMax];
-   {
-      if(IsOverflowBinSize<FloatMain, UIntMain>(true, true, bHessian, cRuntimeScores)) {
-         // TODO: move this to init
-         return Error_OutOfMemory;
+   if(IsOverflowBinSize<FloatMain, UIntMain>(true, true, bHessian, cRuntimeScores)) {
+      // TODO: move this to init
+      return Error_OutOfMemory;
+   }
+
+   size_t* pcBins2 = acBins2;
+
+   pTermFeature = pTerm->GetTermFeatures();
+   do {
+      const FeatureBoosting* pFeature = pTermFeature->m_pFeature;
+      const size_t cBins = pFeature->GetCountBins();
+      EBM_ASSERT(size_t{1} <= cBins); // we don't boost on empty training sets
+      *pcBins2 = cBins;
+      ++pcBins2;
+      ++pTermFeature;
+   } while(pTermFeaturesEnd != pTermFeature);
+
+   if(!(flags & TermBoostFlags_Corners)) {
+      double* aWeights = nullptr;
+      double* pGradient = nullptr;
+      double* pHessian = nullptr;
+      if(0 != ((TermBoostFlags_PurifyUpdate | TermBoostFlags_PurifyGain) & flags)) {
+         // allocate the biggest tensor that is possible to split into
+
+         // TODO: cache this memory allocation so that we don't do it each time
+
+         if(IsAddError(size_t{1}, cScores)) {
+            return Error_OutOfMemory;
+         }
+         size_t cItems = 1 + cScores;
+         const bool bUseLogitBoost = bHessian && !(TermBoostFlags_DisableNewtonGain & flags);
+         if(bUseLogitBoost) {
+            if(IsAddError(cScores, cItems)) {
+               return Error_OutOfMemory;
+            }
+            cItems += cScores;
+         }
+         if(IsMultiplyError(sizeof(double), cItems, cTensorBins)) {
+            return Error_OutOfMemory;
+         }
+         aWeights = static_cast<double*>(malloc(sizeof(double) * cItems * cTensorBins));
+         if(nullptr == aWeights) {
+            return Error_OutOfMemory;
+         }
+         pGradient = aWeights + cTensorBins;
+         if(bUseLogitBoost) {
+            pHessian = pGradient + cTensorBins * cScores;
+         }
       }
 
       if(IsOverflowTreeNodeMultiSize(bHessian, cRuntimeScores)) {
@@ -379,18 +428,14 @@ static ErrorEbm BoostMultiDimensional(BoosterShell* const pBoosterShell,
          return Error_OutOfMemory;
       }
 
-      cPossibleSplits = 0;
-
+      size_t cPossibleSplits = 0;
       size_t cBytes = 1;
-
-      size_t* pcBins2 = acBins2;
 
       pTermFeature = pTerm->GetTermFeatures();
       do {
          const FeatureBoosting* pFeature = pTermFeature->m_pFeature;
          const size_t cBins = pFeature->GetCountBins();
          EBM_ASSERT(size_t{1} <= cBins); // we don't boost on empty training sets
-         *pcBins2 = cBins;
          const size_t cSplits = cBins - 1;
          if(IsAddError(cPossibleSplits, cSplits)) {
             return Error_OutOfMemory;
@@ -400,7 +445,6 @@ static ErrorEbm BoostMultiDimensional(BoosterShell* const pBoosterShell,
             return Error_OutOfMemory;
          }
          cBytes *= cBins;
-         ++pcBins2;
          ++pTermFeature;
       } while(pTermFeaturesEnd != pTermFeature);
 
@@ -442,138 +486,174 @@ static ErrorEbm BoostMultiDimensional(BoosterShell* const pBoosterShell,
       if(Error_None != error) {
          return error;
       }
-   }
 
-   error = PartitionTwoDimensionalBoosting(bHessian,
-         cRuntimeScores,
-         pTerm->GetCountDimensions(),
-         cRealDimensions,
-         flags,
-         cSamplesLeafMin,
-         hessianMin,
-         regAlpha,
-         regLambda,
-         deltaStepMax,
-         pBoosterShell->GetBoostingMainBins(),
-         aAuxiliaryBins,
-         pBoosterShell->GetInnerTermUpdate(),
-         pBoosterShell->GetTreeNodeMultiTemp(),
-         acBins2,
-         aWeights,
-         pGradient,
-         pHessian,
-         pTotalGain,
-         cPossibleSplits,
-         pBoosterShell->GetTemp1()
+      error = PartitionMultiDimensionalTree(bHessian,
+            cRuntimeScores,
+            pTerm->GetCountDimensions(),
+            cRealDimensions,
+            flags,
+            cSamplesLeafMin,
+            hessianMin,
+            regAlpha,
+            regLambda,
+            deltaStepMax,
+            pBoosterShell->GetBoostingMainBins(),
+            aAuxiliaryBins,
+            pBoosterShell->GetInnerTermUpdate(),
+            pBoosterShell->GetTreeNodeMultiTemp(),
+            acBins2,
+            aWeights,
+            pGradient,
+            pHessian,
+            pTotalGain,
+            cPossibleSplits,
+            pBoosterShell->GetTemp1()
 #ifndef NDEBUG
-               ,
-         aDebugCopyBins,
-         pBoosterShell->GetDebugMainBinsEnd()
+                  ,
+            aDebugCopyBins,
+            pBoosterShell->GetDebugMainBinsEnd()
 #endif // NDEBUG
-   );
-   if(Error_None != error) {
-      free(aWeights);
+      );
+
+      if(Error_None != error) {
+         free(aWeights);
 #ifndef NDEBUG
-      free(aDebugCopyBins);
+         free(aDebugCopyBins);
 #endif // NDEBUG
 
-      LOG_0(Trace_Verbose, "Exited BoostMultiDimensional with Error code");
+         LOG_0(Trace_Verbose, "Exited BoostMultiDimensional with Error code");
 
-      return error;
-   }
-   EBM_ASSERT(!std::isnan(*pTotalGain));
-   EBM_ASSERT(0 <= *pTotalGain);
-
-   if(0 != (TermBoostFlags_PurifyUpdate & flags) && 0 == (TermBoostFlags_PurifyGain & flags)) {
-      Tensor* const pTensor = pBoosterShell->GetInnerTermUpdate();
-
-      size_t cDimensions = pTerm->GetCountDimensions();
-      size_t cTensorBinsPurify = 1;
-      size_t iDimension = 0;
-      do {
-         const size_t cBins = pTensor->GetCountSlices(iDimension);
-         cTensorBinsPurify *= cBins;
-         ++iDimension;
-      } while(cDimensions != iDimension);
-
-      size_t acPurifyBins[k_cDimensionsMax];
-      size_t* pcPurifyBins = acPurifyBins;
-      size_t cSurfaceBinsTotal = 0;
-      iDimension = 0;
-      do {
-         const size_t cBins = pTensor->GetCountSlices(iDimension);
-         if(size_t{1} < cBins) {
-            *pcPurifyBins = cBins;
-            EBM_ASSERT(0 == cTensorBinsPurify % cBins);
-            const size_t cExcludeSurfaceBins = cTensorBinsPurify / cBins;
-            cSurfaceBinsTotal += cExcludeSurfaceBins;
-            ++pcPurifyBins;
-         }
-         ++iDimension;
-      } while(pTerm->GetCountDimensions() != iDimension);
-
-      constexpr double tolerance = 0.0; // TODO: for now purify to the max, but test tolerances and profile them
-
-      // TODO: in the future try randomizing the purification order.  It probably doesn't make much difference
-      //       though if we're purifying to the 0.0 tolerance, and it might make things slower, although we
-      //       could see a speed increase if it allows us to use bigger tolerance values.
-
-      double* pScores = pTensor->GetTensorScoresPointer();
-      const double* const pScoreMulticlassEnd = &pScores[cScores];
-      do {
-         // ignore the return from PurifyInternal since we should check for NaN in the weights
-         // earlier and the checks in PurifyInternal are only for the stand-alone purification API
-         PurifyInternal(tolerance,
-               cScores,
-               cTensorBinsPurify,
-               cSurfaceBinsTotal,
-               nullptr,
-               nullptr,
-               acPurifyBins,
-               aWeights,
-               pScores,
-               nullptr,
-               nullptr);
-         ++pScores;
-      } while(pScoreMulticlassEnd != pScores);
-
-      // When calculating purified gain, we do not subtract
-      // the parent since the pure partial gain is always zero.
-      double gain = 0.0;
-      double* pScore = pTensor->GetTensorScoresPointer();
-      EBM_ASSERT(!IsMultiplyError(cTensorBinsPurify, cScores)); // we have allocated it
-      double* pScoreEnd = pScore + cTensorBinsPurify * cScores;
-      double* pWeight = aWeights;
-      do {
-         double hess = *pWeight;
-         for(size_t iScore = 0; iScore < cScores; ++iScore) {
-            double grad = *pGradient;
-            if(nullptr != pHessian) {
-               hess = *pHessian;
-               ++pHessian;
-            }
-            double update = *pScore;
-            gain += CalcPartialGainFromUpdate<true>(grad, hess, -update, regAlpha, regLambda);
-            ++pGradient;
-            ++pScore;
-         }
-         ++pWeight;
-      } while(pScoreEnd != pScore);
-
-      if(/* NaN */ !(std::numeric_limits<double>::min() <= gain)) {
-         // Purification can push the updates to a point where they are detrimental to the purified gain
-         // in which case gain can end up slightly negative. If this happens, disallow the cuts so that we
-         // never have negative gain. For purified updates, if we make no cuts, then the update is zero
-         // so we don't have to call CalcNegUpdate.
-
-         pTensor->Reset();
-         gain = std::isnan(gain) ? gain : double{0};
+         return error;
       }
 
-      *pTotalGain = gain;
+      EBM_ASSERT(!std::isnan(*pTotalGain));
+      EBM_ASSERT(0 <= *pTotalGain);
+
+      if(0 != (TermBoostFlags_PurifyUpdate & flags) && 0 == (TermBoostFlags_PurifyGain & flags)) {
+         Tensor* const pTensor = pBoosterShell->GetInnerTermUpdate();
+
+         size_t cDimensions = pTerm->GetCountDimensions();
+         size_t cTensorBinsPurify = 1;
+         size_t iDimension = 0;
+         do {
+            const size_t cBins = pTensor->GetCountSlices(iDimension);
+            cTensorBinsPurify *= cBins;
+            ++iDimension;
+         } while(cDimensions != iDimension);
+
+         size_t acPurifyBins[k_cDimensionsMax];
+         size_t* pcPurifyBins = acPurifyBins;
+         size_t cSurfaceBinsTotal = 0;
+         iDimension = 0;
+         do {
+            const size_t cBins = pTensor->GetCountSlices(iDimension);
+            if(size_t{1} < cBins) {
+               *pcPurifyBins = cBins;
+               EBM_ASSERT(0 == cTensorBinsPurify % cBins);
+               const size_t cExcludeSurfaceBins = cTensorBinsPurify / cBins;
+               cSurfaceBinsTotal += cExcludeSurfaceBins;
+               ++pcPurifyBins;
+            }
+            ++iDimension;
+         } while(pTerm->GetCountDimensions() != iDimension);
+
+         constexpr double tolerance = 0.0; // TODO: for now purify to the max, but test tolerances and profile them
+
+         // TODO: in the future try randomizing the purification order.  It probably doesn't make much difference
+         //       though if we're purifying to the 0.0 tolerance, and it might make things slower, although we
+         //       could see a speed increase if it allows us to use bigger tolerance values.
+
+         double* pScores = pTensor->GetTensorScoresPointer();
+         const double* const pScoreMulticlassEnd = &pScores[cScores];
+         do {
+            // ignore the return from PurifyInternal since we should check for NaN in the weights
+            // earlier and the checks in PurifyInternal are only for the stand-alone purification API
+            PurifyInternal(tolerance,
+                  cScores,
+                  cTensorBinsPurify,
+                  cSurfaceBinsTotal,
+                  nullptr,
+                  nullptr,
+                  acPurifyBins,
+                  aWeights,
+                  pScores,
+                  nullptr,
+                  nullptr);
+            ++pScores;
+         } while(pScoreMulticlassEnd != pScores);
+
+         // When calculating purified gain, we do not subtract
+         // the parent since the pure partial gain is always zero.
+         double gain = 0.0;
+         double* pScore = pTensor->GetTensorScoresPointer();
+         EBM_ASSERT(!IsMultiplyError(cTensorBinsPurify, cScores)); // we have allocated it
+         double* pScoreEnd = pScore + cTensorBinsPurify * cScores;
+         double* pWeight = aWeights;
+         do {
+            double hess = *pWeight;
+            for(size_t iScore = 0; iScore < cScores; ++iScore) {
+               double grad = *pGradient;
+               if(nullptr != pHessian) {
+                  hess = *pHessian;
+                  ++pHessian;
+               }
+               double update = *pScore;
+               gain += CalcPartialGainFromUpdate<true>(grad, hess, -update, regAlpha, regLambda);
+               ++pGradient;
+               ++pScore;
+            }
+            ++pWeight;
+         } while(pScoreEnd != pScore);
+
+         if(/* NaN */ !(std::numeric_limits<double>::min() <= gain)) {
+            // Purification can push the updates to a point where they are detrimental to the purified gain
+            // in which case gain can end up slightly negative. If this happens, disallow the cuts so that we
+            // never have negative gain. For purified updates, if we make no cuts, then the update is zero
+            // so we don't have to call CalcNegUpdate.
+
+            pTensor->Reset();
+            gain = std::isnan(gain) ? gain : double{0};
+         }
+
+         *pTotalGain = gain;
+      }
 
       free(aWeights);
+   } else {
+      error = PartitionMultiDimensionalCorner(bHessian,
+            cRuntimeScores,
+            cRealDimensions,
+            flags,
+            cSamplesLeafMin,
+            hessianMin,
+            regAlpha,
+            regLambda,
+            deltaStepMax,
+            pBoosterShell->GetBoostingMainBins(),
+            aAuxiliaryBins,
+            pBoosterShell->GetInnerTermUpdate(),
+            acBins2,
+            pTotalGain
+#ifndef NDEBUG
+            ,
+            aDebugCopyBins,
+            pBoosterShell->GetDebugMainBinsEnd()
+#endif // NDEBUG
+      );
+
+      if(Error_None != error) {
+#ifndef NDEBUG
+         free(aDebugCopyBins);
+#endif // NDEBUG
+
+         LOG_0(Trace_Verbose, "Exited BoostMultiDimensional with Error code");
+
+         return error;
+      }
    }
+
+   EBM_ASSERT(!std::isnan(*pTotalGain));
+   EBM_ASSERT(0 <= *pTotalGain);
 
 #ifndef NDEBUG
    free(aDebugCopyBins);
@@ -591,7 +671,7 @@ static ErrorEbm BoostRandom(RandomDeterministic* const pRng,
       const FloatCalc regLambda,
       const FloatCalc deltaStepMax,
       const IntEbm* const aLeavesMax,
-      const MonotoneDirection significantDirection,
+      const MonotoneDirection monotoneDirection,
       double* const pTotalGain) {
    // THIS RANDOM SPLIT FUNCTION IS PRIMARILY USED FOR DIFFERENTIAL PRIVACY EBMs
 
@@ -611,7 +691,7 @@ static ErrorEbm BoostRandom(RandomDeterministic* const pRng,
          regLambda,
          deltaStepMax,
          aLeavesMax,
-         significantDirection,
+         monotoneDirection,
          pTotalGain);
    if(Error_None != error) {
       LOG_0(Trace_Verbose, "Exited BoostRandom with Error code");
@@ -641,6 +721,10 @@ EBM_API_BODY ErrorEbm EBM_CALLING_CONVENTION GenerateTermUpdate(void* rng,
       double regAlpha,
       double regLambda,
       double maxDeltaStep,
+      IntEbm minCategorySamples,
+      double categoricalSmoothing,
+      IntEbm maxCategoricalThreshold,
+      double categoricalInclusionPercent,
       const IntEbm* leavesMax,
       const MonotoneDirection* direction,
       double* avgGainOut) {
@@ -660,6 +744,10 @@ EBM_API_BODY ErrorEbm EBM_CALLING_CONVENTION GenerateTermUpdate(void* rng,
          "regAlpha=%le, "
          "regLambda=%le, "
          "maxDeltaStep=%le, "
+         "minCategorySamples=%" IntEbmPrintf ", "
+         "categoricalSmoothing=%le, "
+         "maxCategoricalThreshold=%" IntEbmPrintf ", "
+         "categoricalInclusionPercent=%le, "
          "leavesMax=%p, "
          "direction=%p, "
          "avgGainOut=%p",
@@ -673,6 +761,10 @@ EBM_API_BODY ErrorEbm EBM_CALLING_CONVENTION GenerateTermUpdate(void* rng,
          regAlpha,
          regLambda,
          maxDeltaStep,
+         minCategorySamples,
+         categoricalSmoothing,
+         maxCategoricalThreshold,
+         categoricalInclusionPercent,
          static_cast<const void*>(leavesMax),
          static_cast<const void*>(direction),
          static_cast<void*>(avgGainOut));
@@ -690,34 +782,56 @@ EBM_API_BODY ErrorEbm EBM_CALLING_CONVENTION GenerateTermUpdate(void* rng,
    // set this to illegal so if we exit with an error we have an invalid index
    pBoosterShell->SetTermIndex(BoosterShell::k_illegalTermIndex);
 
-   if(indexTerm < 0) {
-      LOG_0(Trace_Error, "ERROR GenerateTermUpdate indexTerm must be positive");
-      return Error_IllegalParamVal;
-   }
-
    BoosterCore* const pBoosterCore = pBoosterShell->GetBoosterCore();
    EBM_ASSERT(nullptr != pBoosterCore);
 
-   if(static_cast<IntEbm>(pBoosterCore->GetCountTerms()) <= indexTerm) {
-      LOG_0(Trace_Error, "ERROR GenerateTermUpdate indexTerm above the number of terms that we have");
-      return Error_IllegalParamVal;
+   size_t iTerm;
+   Term* pTerm;
+   if(indexTerm < IntEbm{0}) {
+      if(indexTerm != IntEbm{-1}) {
+         LOG_0(Trace_Error, "ERROR GenerateTermUpdate indexTerm must be positive or -1");
+         return Error_IllegalParamVal;
+      }
+      iTerm = BoosterShell::k_interceptTermIndex;
+      pTerm = nullptr;
+
+      LOG_0(Trace_Info, "Entered GenerateTermUpdate");
+   } else {
+      if(static_cast<IntEbm>(pBoosterCore->GetCountTerms()) <= indexTerm) {
+         LOG_0(Trace_Error, "ERROR GenerateTermUpdate indexTerm above the number of terms that we have");
+         return Error_IllegalParamVal;
+      }
+      iTerm = static_cast<size_t>(indexTerm);
+
+      // this is true because 0 < pBoosterCore->m_cTerms since our caller needs to pass in a valid indexTerm to this
+      // function
+      EBM_ASSERT(nullptr != pBoosterCore->GetTerms());
+      pTerm = pBoosterCore->GetTerms()[iTerm];
+
+      LOG_COUNTED_0(pTerm->GetPointerCountLogEnterGenerateTermUpdateMessages(),
+            Trace_Info,
+            Trace_Verbose,
+            "Entered GenerateTermUpdate");
    }
-   size_t iTerm = static_cast<size_t>(indexTerm);
-
-   // this is true because 0 < pBoosterCore->m_cTerms since our caller needs to pass in a valid indexTerm to this
-   // function
-   EBM_ASSERT(nullptr != pBoosterCore->GetTerms());
-   Term* const pTerm = pBoosterCore->GetTerms()[iTerm];
-
-   LOG_COUNTED_0(pTerm->GetPointerCountLogEnterGenerateTermUpdateMessages(),
-         Trace_Info,
-         Trace_Verbose,
-         "Entered GenerateTermUpdate");
 
    if(flags &
-         ~(TermBoostFlags_DisableNewtonGain | TermBoostFlags_DisableNewtonUpdate | TermBoostFlags_GradientSums |
-               TermBoostFlags_RandomSplits)) {
+         ~(TermBoostFlags_PurifyGain | TermBoostFlags_DisableNewtonGain | TermBoostFlags_DisableCategorical |
+               TermBoostFlags_PurifyUpdate | TermBoostFlags_DisableNewtonUpdate | TermBoostFlags_GradientSums |
+               TermBoostFlags_RandomSplits | TermBoostFlags_Corners | TermBoostFlags_MissingLow |
+               TermBoostFlags_MissingHigh | TermBoostFlags_MissingSeparate)) {
       LOG_0(Trace_Error, "ERROR GenerateTermUpdate flags contains unknown flags. Ignoring extras.");
+   }
+
+   if(TermBoostFlags_MissingLow & flags) {
+      if((TermBoostFlags_MissingHigh | TermBoostFlags_MissingSeparate) & flags) {
+         LOG_0(Trace_Error, "ERROR GenerateTermUpdate flags contains multiple Missing value flags.");
+         return Error_IllegalParamVal;
+      }
+   } else if(TermBoostFlags_MissingHigh & flags) {
+      if(TermBoostFlags_MissingSeparate & flags) {
+         LOG_0(Trace_Error, "ERROR GenerateTermUpdate flags contains multiple Missing value flags.");
+         return Error_IllegalParamVal;
+      }
    }
 
    if(std::isnan(learningRate)) {
@@ -730,8 +844,8 @@ EBM_API_BODY ErrorEbm EBM_CALLING_CONVENTION GenerateTermUpdate(void* rng,
       LOG_0(Trace_Warning, "WARNING GenerateTermUpdate learningRate is negative");
    }
 
-   size_t cSamplesLeafMin = size_t{0}; // this is the min value
-   if(IntEbm{0} <= minSamplesLeaf) {
+   size_t cSamplesLeafMin = size_t{1}; // this is the min value
+   if(IntEbm{1} <= minSamplesLeaf) {
       cSamplesLeafMin = static_cast<size_t>(minSamplesLeaf);
       if(IsConvertError<size_t>(minSamplesLeaf)) {
          // we can never exceed a size_t number of samples, so let's just set it to the maximum if we were going to
@@ -739,7 +853,7 @@ EBM_API_BODY ErrorEbm EBM_CALLING_CONVENTION GenerateTermUpdate(void* rng,
          cSamplesLeafMin = std::numeric_limits<size_t>::max();
       }
    } else {
-      LOG_0(Trace_Warning, "WARNING GenerateTermUpdate minSamplesLeaf can't be less than 0.  Adjusting to 0.");
+      LOG_0(Trace_Warning, "WARNING GenerateTermUpdate minSamplesLeaf can't be less than 1.  Adjusting to 1.");
    }
 
    FloatCalc hessianMin = static_cast<FloatCalc>(minHessian);
@@ -769,6 +883,51 @@ EBM_API_BODY ErrorEbm EBM_CALLING_CONVENTION GenerateTermUpdate(void* rng,
       deltaStepMax = std::numeric_limits<FloatCalc>::infinity();
    }
 
+   size_t cCategorySamplesMin = size_t{1}; // this is the min value
+   if(IntEbm{1} <= minCategorySamples) {
+      cCategorySamplesMin = static_cast<size_t>(minCategorySamples);
+      if(IsConvertError<size_t>(minCategorySamples)) {
+         // we can never exceed a size_t number of samples, so let's just set it to the maximum if we were going to
+         // overflow because it will generate the same results as if we used the true number
+         cCategorySamplesMin = std::numeric_limits<size_t>::max();
+      }
+   } else {
+      LOG_0(Trace_Warning, "WARNING GenerateTermUpdate minSamplesLeaf can't be less than 1.  Adjusting to 1.");
+   }
+
+   FloatCalc categoricalSmoothingCalc = static_cast<FloatCalc>(categoricalSmoothing);
+   if(categoricalSmoothingCalc < std::numeric_limits<FloatCalc>::min()) {
+      // allow isnan(categoricalSmoothingCalc) through unscathed
+      categoricalSmoothingCalc = std::numeric_limits<FloatCalc>::min();
+      if(categoricalSmoothing < 0.0) {
+         LOG_0(Trace_Warning,
+               "WARNING GenerateTermUpdate categoricalSmoothing must be a positive number. Adjusting to minimum float");
+      }
+   }
+
+   size_t categoricalThresholdMax = size_t{2}; // this is the min value
+   if(IntEbm{2} <= maxCategoricalThreshold) {
+      categoricalThresholdMax = static_cast<size_t>(maxCategoricalThreshold);
+      if(IsConvertError<size_t>(maxCategoricalThreshold)) {
+         // we can never exceed a size_t number of samples, so let's just set it to the maximum if we were going to
+         // overflow because it will generate the same results as if we used the true number
+         categoricalThresholdMax = std::numeric_limits<size_t>::max();
+      }
+   } else {
+      LOG_0(Trace_Warning, "WARNING GenerateTermUpdate maxCategoricalThreshold can't be less than 2.  Adjusting to 2.");
+   }
+
+   FloatCalc categoricalInclusionPercentCalc = static_cast<FloatCalc>(categoricalInclusionPercent);
+   if(/* NaN */ !(categoricalInclusionPercentCalc <= double{1})) {
+      categoricalInclusionPercentCalc = double{1};
+      LOG_0(Trace_Warning,
+            "WARNING GenerateTermUpdate categoricalInclusionPercent must be a positive number between 0 and 1.");
+   } else if(/* NaN */ !(double{0} <= categoricalInclusionPercentCalc)) {
+      categoricalInclusionPercentCalc = 0;
+      LOG_0(Trace_Warning,
+            "WARNING GenerateTermUpdate categoricalInclusionPercent must be a positive number between 0 and 1.");
+   }
+
    const size_t cScores = pBoosterCore->GetCountScores();
    if(size_t{0} == cScores) {
       // if there is only 1 target class for classification, then we can predict the output with 100% accuracy.
@@ -782,29 +941,9 @@ EBM_API_BODY ErrorEbm EBM_CALLING_CONVENTION GenerateTermUpdate(void* rng,
       LOG_0(Trace_Warning, "WARNING GenerateTermUpdate size_t { 0 } == cScores");
       return Error_None;
    }
-   EBM_ASSERT(nullptr != pBoosterShell->GetTermUpdate());
-   EBM_ASSERT(nullptr != pBoosterShell->GetInnerTermUpdate());
-
-   size_t cTensorBins = pTerm->GetCountTensorBins();
-   if(size_t{0} == cTensorBins) {
-      // there are zero samples and 0 bins in one of the features in the dimensions, so the update tensor has 0 bins
-
-      // if GetCountTensorBins is 0, then we leave pBoosterShell->GetTermUpdate() with invalid data since
-      // out Tensor class does not support tensors of zero elements
-
-      if(LIKELY(nullptr != avgGainOut)) {
-         *avgGainOut = 0.0;
-      }
-      pBoosterShell->SetTermIndex(iTerm);
-
-      LOG_0(Trace_Warning, "WARNING GenerateTermUpdate size_t { 0 } == cTensorBins");
-      return Error_None;
-   }
-
    const size_t cInnerBagsAfterZero =
          size_t{0} == pBoosterCore->GetCountInnerBags() ? size_t{1} : pBoosterCore->GetCountInnerBags();
-   const size_t cRealDimensions = pTerm->GetCountRealDimensions();
-   const size_t cDimensions = pTerm->GetCountDimensions();
+   size_t cTensorBins = 1;
 
    // TODO: we can probably eliminate lastDimensionLeavesMax and cSignificantBinCount and just fetch them from
    // iDimensionImportant afterwards
@@ -812,53 +951,90 @@ EBM_API_BODY ErrorEbm EBM_CALLING_CONVENTION GenerateTermUpdate(void* rng,
    // this initialization isn't required, but this variable ends up touching a lot of downstream state
    // and g++ seems to warn about all of that usage, even in other downstream functions!
    size_t cSignificantBinCount = size_t{0};
-   MonotoneDirection significantDirection = MONOTONE_NONE;
+   bool bMissing = false;
+   bool bUnseen = false;
+   bool bNominal = false;
+   MonotoneDirection monotoneDirection = MONOTONE_NONE;
    size_t iDimensionImportant = 0;
-   if(nullptr == leavesMax) {
-      LOG_0(Trace_Warning, "WARNING GenerateTermUpdate leavesMax was null, so there won't be any splits");
-   } else {
-      if(0 != cRealDimensions) {
-         size_t iDimensionInit = 0;
-         const IntEbm* pLeavesMax = leavesMax;
-         const TermFeature* pTermFeature = pTerm->GetTermFeatures();
-         EBM_ASSERT(1 <= cDimensions);
-         const TermFeature* const pTermFeaturesEnd = &pTermFeature[cDimensions];
-         do {
-            const FeatureBoosting* const pFeature = pTermFeature->m_pFeature;
-            const size_t cBins = pFeature->GetCountBins();
-            MonotoneDirection featureDirection = MONOTONE_NONE;
-            if(nullptr != direction) {
-               featureDirection = *direction;
-               ++direction;
-            }
-            if(size_t{1} < cBins) {
-               // if there is only 1 dimension then this is our first time here and lastDimensionLeavesMax must be zero
-               EBM_ASSERT(2 <= cTensorBins);
-               EBM_ASSERT(size_t{2} <= cRealDimensions || IntEbm{0} == lastDimensionLeavesMax);
 
-               iDimensionImportant = iDimensionInit;
-               cSignificantBinCount = cBins;
-               significantDirection |= featureDirection;
-               EBM_ASSERT(nullptr != pLeavesMax);
-               const IntEbm countLeavesMax = *pLeavesMax;
-               if(countLeavesMax <= IntEbm{1}) {
-                  LOG_0(Trace_Warning, "WARNING GenerateTermUpdate countLeavesMax is 1 or less.");
-               } else {
-                  // keep iteration even once we find this so that we output logs for any bins of 1
-                  lastDimensionLeavesMax = countLeavesMax;
+   size_t cRealDimensions = 0;
+   size_t cDimensions = 0;
+
+   if(nullptr != pTerm) {
+      cTensorBins = pTerm->GetCountTensorBins();
+      if(size_t{0} == cTensorBins) {
+         // there are zero samples and 0 bins in one of the features in the dimensions, so the update tensor has 0 bins
+
+         // if GetCountTensorBins is 0, then we leave pBoosterShell->GetTermUpdate() with invalid data since
+         // out Tensor class does not support tensors of zero elements
+
+         if(LIKELY(nullptr != avgGainOut)) {
+            *avgGainOut = 0.0;
+         }
+         pBoosterShell->SetTermIndex(iTerm);
+
+         LOG_0(Trace_Warning, "WARNING GenerateTermUpdate size_t { 0 } == cTensorBins");
+         return Error_None;
+      }
+
+      cRealDimensions = pTerm->GetCountRealDimensions();
+      cDimensions = pTerm->GetCountDimensions();
+
+      if(nullptr != leavesMax) {
+         // If leavesMax is nullptr then there will not be any splits.
+         if(0 != cRealDimensions) {
+            size_t iDimensionInit = 0;
+            const IntEbm* pLeavesMax = leavesMax;
+            const TermFeature* pTermFeature = pTerm->GetTermFeatures();
+            EBM_ASSERT(1 <= cDimensions);
+            const TermFeature* const pTermFeaturesEnd = &pTermFeature[cDimensions];
+            do {
+               const FeatureBoosting* const pFeature = pTermFeature->m_pFeature;
+               const size_t cBins = pFeature->GetCountBins();
+               MonotoneDirection featureDirection = MONOTONE_NONE;
+               if(nullptr != direction) {
+                  featureDirection = *direction;
+                  ++direction;
                }
-            }
-            ++iDimensionInit;
-            ++pLeavesMax;
-            ++pTermFeature;
-         } while(pTermFeaturesEnd != pTermFeature);
+               if(size_t{1} < cBins) {
+                  // if there is only 1 dimension then this is our first time here and lastDimensionLeavesMax must be
+                  // zero
+                  EBM_ASSERT(2 <= cTensorBins);
+                  EBM_ASSERT(size_t{2} <= cRealDimensions || IntEbm{0} == lastDimensionLeavesMax);
 
-         EBM_ASSERT(size_t{2} <= cSignificantBinCount);
+                  iDimensionImportant = iDimensionInit;
+                  cSignificantBinCount = cBins;
+                  bMissing = pFeature->IsMissing();
+                  bUnseen = pFeature->IsUnseen();
+                  bNominal = pFeature->IsNominal();
+                  monotoneDirection |= featureDirection;
+                  EBM_ASSERT(nullptr != pLeavesMax);
+                  const IntEbm countLeavesMax = *pLeavesMax;
+                  if(countLeavesMax <= IntEbm{1}) {
+                     if(countLeavesMax < IntEbm{1}) {
+                        LOG_0(Trace_Warning,
+                              "WARNING GenerateTermUpdate countLeavesMax cannot be less than 1. Adjusting to 1.");
+                     }
+                  } else {
+                     // keep iteration even once we find this so that we output logs for any bins of 1
+                     lastDimensionLeavesMax = countLeavesMax;
+                  }
+               }
+               ++iDimensionInit;
+               ++pLeavesMax;
+               ++pTermFeature;
+            } while(pTermFeaturesEnd != pTermFeature);
+
+            EBM_ASSERT(size_t{2} <= cSignificantBinCount);
+         }
       }
    }
 
    EBM_ASSERT(1 <= cTensorBins);
    EBM_ASSERT(2 <= cTensorBins || IntEbm{0} == lastDimensionLeavesMax);
+
+   EBM_ASSERT(nullptr != pBoosterShell->GetTermUpdate());
+   EBM_ASSERT(nullptr != pBoosterShell->GetInnerTermUpdate());
 
    pBoosterShell->GetTermUpdate()->SetCountDimensions(cDimensions);
    pBoosterShell->GetTermUpdate()->Reset();
@@ -923,7 +1099,8 @@ EBM_API_BODY ErrorEbm EBM_CALLING_CONVENTION GenerateTermUpdate(void* rng,
       // are going to remain having 0 splits.
       pBoosterShell->GetInnerTermUpdate()->Reset();
 
-      if(IntEbm{0} == lastDimensionLeavesMax || (1 != cRealDimensions && MONOTONE_NONE != significantDirection)) {
+      if(IntEbm{0} == lastDimensionLeavesMax ||
+            ((1 != cRealDimensions || bNominal || 1 != cScores) && MONOTONE_NONE != monotoneDirection)) {
          // this is kind of hacky where if any one of a number of things occurs (like we have only 1 leaf)
          // we sum everything into a single bin. The alternative would be to always sum into the tensor bins
          // but then collapse them afterwards into a single bin, but that's more work.
@@ -941,10 +1118,10 @@ EBM_API_BODY ErrorEbm EBM_CALLING_CONVENTION GenerateTermUpdate(void* rng,
       EBM_ASSERT(nullptr != aMainBins);
 
 #ifndef NDEBUG
-      size_t cAuxillaryBins = pTerm->GetCountAuxillaryBins();
-      if(0 != (TermBoostFlags_RandomSplits & flags)) {
+      size_t cAuxillaryBins = 0;
+      if(nullptr != pTerm && 0 == (TermBoostFlags_RandomSplits & flags)) {
          // if we're doing random boosting we allocated the auxillary memory, but we don't need it
-         cAuxillaryBins = 0;
+         cAuxillaryBins = pTerm->GetCountAuxillaryBins();
       }
       EBM_ASSERT(!IsAddError(cTensorBins, cAuxillaryBins));
       EBM_ASSERT(!IsMultiplyError(cBytesPerMainBin, cTensorBins + cAuxillaryBins));
@@ -958,6 +1135,7 @@ EBM_API_BODY ErrorEbm EBM_CALLING_CONVENTION GenerateTermUpdate(void* rng,
 
          EBM_ASSERT(1 <= pBoosterCore->GetTrainingSet()->GetCountSubsets());
          DataSubsetBoosting* pSubset = pBoosterCore->GetTrainingSet()->GetSubsets();
+         EBM_ASSERT(nullptr != pSubset);
          const DataSubsetBoosting* const pSubsetsEnd = pSubset + pBoosterCore->GetTrainingSet()->GetCountSubsets();
          do {
             int cPack;
@@ -1035,8 +1213,8 @@ EBM_API_BODY ErrorEbm EBM_CALLING_CONVENTION GenerateTermUpdate(void* rng,
             params.m_cSamples = pSubset->GetCountSamples();
             params.m_cBytesFastBins = cBytesPerFastBin * cTensorBins;
             params.m_aGradientsAndHessians = pSubset->GetGradHess();
-            params.m_aWeights = pSubset->GetInnerBag(iBag)->GetWeights();
-            params.m_aPacked = pSubset->GetTermData(iTerm);
+            params.m_aWeights = pSubset->GetSubsetInnerBag(iBag)->GetWeights();
+            params.m_aPacked = BoosterShell::k_interceptTermIndex == iTerm ? nullptr : pSubset->GetTermData(iTerm);
             params.m_aFastBins = aFastBins;
 #ifndef NDEBUG
             params.m_pDebugFastBinsEnd = IndexBin(aFastBins, cBytesPerFastBin * cParallelTensorBins);
@@ -1059,10 +1237,19 @@ EBM_API_BODY ErrorEbm EBM_CALLING_CONVENTION GenerateTermUpdate(void* rng,
                   // the aCounts and aWeights tensors contain the final counts and weights, so when calling
                   // ConvertAddBin we only want to call it once with these tensors since otherwise they
                   // would be added multiple times
-                  aCounts = TermInnerBag::GetCounts(
-                        size_t{1} == cTensorBins, iTerm, iBag, pBoosterCore->GetTrainingSet()->GetTermInnerBags());
-                  aWeights = TermInnerBag::GetWeights(
-                        size_t{1} == cTensorBins, iTerm, iBag, pBoosterCore->GetTrainingSet()->GetTermInnerBags());
+                  aCounts = size_t{1} == cTensorBins ?
+                        pBoosterCore->GetTrainingSet()->GetDataSetInnerBag()[iBag].GetTotalCount() :
+                        pBoosterCore->GetTrainingSet()
+                              ->GetDataSetInnerBag()[iBag]
+                              .GetTermInnerBags()[iTerm]
+                              .GetCounts();
+
+                  aWeights = size_t{1} == cTensorBins ?
+                        pBoosterCore->GetTrainingSet()->GetDataSetInnerBag()[iBag].GetTotalWeight() :
+                        pBoosterCore->GetTrainingSet()
+                              ->GetDataSetInnerBag()[iBag]
+                              .GetTermInnerBags()[iTerm]
+                              .GetWeights();
                }
 
                ConvertAddBin(cScores,
@@ -1113,7 +1300,7 @@ EBM_API_BODY ErrorEbm EBM_CALLING_CONVENTION GenerateTermUpdate(void* rng,
                      regLambdaCalc,
                      deltaStepMax,
                      leavesMax,
-                     significantDirection,
+                     monotoneDirection,
                      &gain);
                if(Error_None != error) {
                   return error;
@@ -1129,8 +1316,12 @@ EBM_API_BODY ErrorEbm EBM_CALLING_CONVENTION GenerateTermUpdate(void* rng,
 
                error = BoostSingleDimensional(pRng,
                      pBoosterShell,
+                     bMissing,
+                     bUnseen,
+                     bNominal,
                      flags,
                      cSignificantBinCount,
+                     pBoosterCore->GetTrainingSet()->GetBagCountTotal(iBag),
                      static_cast<FloatMain>(weightTotal),
                      iDimensionImportant,
                      cSamplesLeafMin,
@@ -1138,8 +1329,12 @@ EBM_API_BODY ErrorEbm EBM_CALLING_CONVENTION GenerateTermUpdate(void* rng,
                      regAlphaCalc,
                      regLambdaCalc,
                      deltaStepMax,
+                     cCategorySamplesMin,
+                     categoricalSmoothingCalc,
+                     categoricalThresholdMax,
+                     categoricalInclusionPercentCalc,
                      lastDimensionLeavesMax,
-                     significantDirection,
+                     monotoneDirection,
                      &gain);
                if(Error_None != error) {
                   return error;
@@ -1161,7 +1356,7 @@ EBM_API_BODY ErrorEbm EBM_CALLING_CONVENTION GenerateTermUpdate(void* rng,
 
             // gain should be +inf if there was an overflow in our callees
             EBM_ASSERT(!std::isnan(gain));
-            EBM_ASSERT(0 <= gain);
+            EBM_ASSERT(0 == gain || k_gainMin <= gain);
 
             // this could re-promote gain to be +inf again if weightTotal < 1.0
             // do the sample count inversion here in case adding all the avgeraged gains pushes us into +inf
@@ -1233,12 +1428,16 @@ EBM_API_BODY ErrorEbm EBM_CALLING_CONVENTION GenerateTermUpdate(void* rng,
       *avgGainOut = gainAvg;
    }
 
-   LOG_COUNTED_N(pTerm->GetPointerCountLogExitGenerateTermUpdateMessages(),
-         Trace_Info,
-         Trace_Verbose,
-         "Exited GenerateTermUpdate: "
-         "gainAvg=%le",
-         gainAvg);
+   if(nullptr == pTerm) {
+      LOG_N(Trace_Info, "Exited GenerateTermUpdate: gainAvg=%le", gainAvg);
+   } else {
+      LOG_COUNTED_N(pTerm->GetPointerCountLogExitGenerateTermUpdateMessages(),
+            Trace_Info,
+            Trace_Verbose,
+            "Exited GenerateTermUpdate: "
+            "gainAvg=%le",
+            gainAvg);
+   }
 
    return Error_None;
 }
